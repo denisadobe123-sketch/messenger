@@ -1,10 +1,37 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Auth from './components/Auth.jsx';
 import Sidebar from './components/Sidebar.jsx';
 import ChatWindow from './components/ChatWindow.jsx';
+import ProfileModal from './components/ProfileModal.jsx';
 import { connectSocket, disconnectSocket, getSocket } from './socket.js';
+import { API_URL } from './api.js';
 
-import { API_URL as API } from './api.js';
+// Звук уведомления (короткий beep через Web Audio API)
+function playNotificationSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = 880;
+    osc.type = 'sine';
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+    osc.start(ctx.currentTime); osc.stop(ctx.currentTime + 0.3);
+  } catch {}
+}
+
+function requestNotificationPermission() {
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+}
+
+function showBrowserNotification(title, body) {
+  if ('Notification' in window && Notification.permission === 'granted') {
+    new Notification(title, { body, icon: '/favicon.ico' });
+  }
+}
 
 export default function App() {
   const [user, setUser] = useState(() => {
@@ -14,41 +41,56 @@ export default function App() {
   const [chats, setChats] = useState([]);
   const [selectedChat, setSelectedChat] = useState(null);
   const [onlineUsers, setOnlineUsers] = useState(new Set());
+  const [userStatuses, setUserStatuses] = useState(new Map());
+  const [userProfiles, setUserProfiles] = useState(new Map());
+  const [showProfile, setShowProfile] = useState(false);
+  const selectedChatRef = useRef(null);
+
+  useEffect(() => { selectedChatRef.current = selectedChat; }, [selectedChat]);
 
   useEffect(() => {
     if (!user || !token) return;
+    requestNotificationPermission();
 
     const socket = connectSocket(token);
 
     socket.on('user_status', ({ userId, online }) => {
-      setOnlineUsers(prev => {
-        const next = new Set(prev);
-        online ? next.add(userId) : next.delete(userId);
-        return next;
-      });
+      setOnlineUsers(prev => { const n = new Set(prev); online ? n.add(userId) : n.delete(userId); return n; });
+    });
+
+    socket.on('user_status_detail', ({ userId, status }) => {
+      setUserStatuses(prev => new Map(prev).set(userId, status));
+    });
+
+    socket.on('user_profile_updated', (profile) => {
+      setUserProfiles(prev => new Map(prev).set(profile.id, profile));
+      if (profile.id === user.id) {
+        const updated = { ...user, ...profile };
+        setUser(updated);
+        localStorage.setItem('user', JSON.stringify(updated));
+      }
     });
 
     socket.on('new_message', (msg) => {
+      const isActive = selectedChatRef.current?.id === msg.chatId;
+
       setChats(prev => prev.map(c => {
         if (c.id !== msg.chatId) return c;
-        const isSelected = selectedChatRef.current?.id === msg.chatId;
-        return {
-          ...c,
-          lastMessage: msg,
-          unread: isSelected ? 0 : (c.unread || 0) + 1
-        };
+        return { ...c, lastMessage: msg, unread: isActive ? 0 : (c.unread || 0) + 1 };
       }).sort((a, b) => {
         const aT = a.lastMessage ? new Date(a.lastMessage.createdAt) : new Date(a.createdAt);
         const bT = b.lastMessage ? new Date(b.lastMessage.createdAt) : new Date(b.createdAt);
         return bT - aT;
       }));
+
+      if (!isActive && msg.senderId !== user.id) {
+        playNotificationSound();
+        showBrowserNotification(msg.senderName, msg.text || '📎 Файл');
+      }
     });
 
     socket.on('new_chat', (chat) => {
-      setChats(prev => {
-        if (prev.find(c => c.id === chat.id)) return prev;
-        return [{ ...chat, displayName: chat.name, unread: 0 }, ...prev];
-      });
+      setChats(prev => prev.find(c => c.id === chat.id) ? prev : [{ ...chat, displayName: chat.name, unread: 0 }, ...prev]);
     });
 
     loadChats(token);
@@ -56,30 +98,20 @@ export default function App() {
     return () => disconnectSocket();
   }, [user?.id]);
 
-  const selectedChatRef = { current: selectedChat };
-  useEffect(() => { selectedChatRef.current = selectedChat; }, [selectedChat]);
-
   async function loadChats(t) {
     try {
-      const res = await fetch(`${API}/chats`, { headers: { Authorization: `Bearer ${t}` } });
-      const data = await res.json();
-      setChats(data);
+      const res = await fetch(`${API_URL}/chats`, { headers: { Authorization: `Bearer ${t}` } });
+      setChats(await res.json());
     } catch {}
   }
 
   function handleAuth(userData, tok) {
-    setUser(userData);
-    setToken(tok);
+    setUser(userData); setToken(tok);
   }
 
   function handleLogout() {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    disconnectSocket();
-    setUser(null);
-    setToken('');
-    setChats([]);
-    setSelectedChat(null);
+    localStorage.removeItem('token'); localStorage.removeItem('user');
+    disconnectSocket(); setUser(null); setToken(''); setChats([]); setSelectedChat(null);
   }
 
   function handleSelectChat(chat) {
@@ -101,6 +133,16 @@ export default function App() {
     });
   }
 
+  function handleProfileUpdate(updatedUser) {
+    const merged = { ...user, ...updatedUser };
+    setUser(merged);
+    localStorage.setItem('user', JSON.stringify(merged));
+
+    // Обновить статус через socket
+    const socket = getSocket();
+    if (socket && updatedUser.status) socket.emit('set_status', { status: updatedUser.status });
+  }
+
   if (!user) return <Auth onAuth={handleAuth} />;
 
   return (
@@ -109,17 +151,29 @@ export default function App() {
         chats={chats}
         currentUser={user}
         onlineUsers={onlineUsers}
+        userStatuses={userStatuses}
+        userProfiles={userProfiles}
         selectedChat={selectedChat}
         onSelectChat={handleSelectChat}
         onNewChat={handleNewChat}
         token={token}
+        onOpenProfile={() => setShowProfile(true)}
       />
       <ChatWindow
         chat={selectedChat}
         currentUser={user}
         onlineUsers={onlineUsers}
+        userStatuses={userStatuses}
         token={token}
       />
+      {showProfile && (
+        <ProfileModal
+          user={user}
+          token={token}
+          onUpdate={handleProfileUpdate}
+          onClose={() => setShowProfile(false)}
+        />
+      )}
     </div>
   );
 }

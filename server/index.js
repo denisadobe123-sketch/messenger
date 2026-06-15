@@ -9,7 +9,7 @@ const path = require('path');
 const fs = require('fs');
 
 const JWT_SECRET = 'messenger_secret_2024';
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 80;
 const DB_FILE = path.join(__dirname, 'db.json');
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 
@@ -30,19 +30,18 @@ function saveDB(db) {
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, {
-  cors: { origin: 'http://localhost:5173', methods: ['GET', 'POST'] }
-});
+const io = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'] } });
 
-const isProd = process.env.NODE_ENV === 'production';
 const CLIENT_DIST = path.join(__dirname, '..', 'client', 'dist');
+const isProd = fs.existsSync(path.join(CLIENT_DIST, 'index.html'));
 
-app.use(cors(isProd ? {} : { origin: 'http://localhost:5173' }));
+app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static(UPLOADS_DIR));
 
 if (isProd) {
   app.use(express.static(CLIENT_DIST));
+  console.log('📦 Раздаём фронтенд из', CLIENT_DIST);
 }
 
 const storage = multer.diskStorage({
@@ -62,12 +61,22 @@ function authMiddleware(req, res, next) {
   }
 }
 
-// ─── Auth ────────────────────────────────────────────────────────────────────
+function getBaseUrl(req) {
+  return process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+}
+
+function safeUser(u) {
+  return { id: u.id, username: u.username, avatar: u.avatar || null, bio: u.bio || null, status: u.status || 'online' };
+}
+
+// ─── Auth ─────────────────────────────────────────────────────────────────────
 
 app.post('/register', async (req, res) => {
   const { username, password } = req.body;
   if (!username?.trim() || !password)
     return res.status(400).json({ error: 'Введите логин и пароль' });
+  if (password.length < 6)
+    return res.status(400).json({ error: 'Пароль минимум 6 символов' });
 
   const db = loadDB();
   if (db.users.find(u => u.username === username.trim()))
@@ -77,13 +86,16 @@ app.post('/register', async (req, res) => {
     id: Date.now().toString(),
     username: username.trim(),
     password: await bcrypt.hash(password, 10),
+    avatar: null,
+    bio: null,
+    status: 'online',
     createdAt: new Date().toISOString()
   };
   db.users.push(user);
   saveDB(db);
 
   const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET);
-  res.json({ token, user: { id: user.id, username: user.username } });
+  res.json({ token, user: safeUser(user) });
 });
 
 app.post('/login', async (req, res) => {
@@ -96,21 +108,76 @@ app.post('/login', async (req, res) => {
   if (!valid) return res.status(400).json({ error: 'Неверный пароль' });
 
   const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET);
-  res.json({ token, user: { id: user.id, username: user.username } });
+  res.json({ token, user: safeUser(user) });
 });
 
-// ─── Users ───────────────────────────────────────────────────────────────────
+// ─── Profile ──────────────────────────────────────────────────────────────────
+
+app.get('/profile', authMiddleware, (req, res) => {
+  const db = loadDB();
+  const user = db.users.find(u => u.id === req.user.id);
+  if (!user) return res.status(404).json({ error: 'Не найден' });
+  res.json(safeUser(user));
+});
+
+app.put('/profile', authMiddleware, (req, res) => {
+  const { bio, status } = req.body;
+  const db = loadDB();
+  const user = db.users.find(u => u.id === req.user.id);
+  if (!user) return res.status(404).json({ error: 'Не найден' });
+
+  if (bio !== undefined) user.bio = bio;
+  if (status !== undefined) user.status = status;
+  saveDB(db);
+
+  io.emit('user_profile_updated', safeUser(user));
+  res.json(safeUser(user));
+});
+
+app.post('/profile/avatar', authMiddleware, upload.single('avatar'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
+  const db = loadDB();
+  const user = db.users.find(u => u.id === req.user.id);
+  if (!user) return res.status(404).json({ error: 'Не найден' });
+
+  user.avatar = `${getBaseUrl(req)}/uploads/${req.file.filename}`;
+  saveDB(db);
+
+  io.emit('user_profile_updated', safeUser(user));
+  res.json(safeUser(user));
+});
+
+app.put('/change-password', authMiddleware, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword)
+    return res.status(400).json({ error: 'Заполните все поля' });
+  if (newPassword.length < 6)
+    return res.status(400).json({ error: 'Новый пароль минимум 6 символов' });
+
+  const db = loadDB();
+  const user = db.users.find(u => u.id === req.user.id);
+  if (!user) return res.status(404).json({ error: 'Не найден' });
+
+  const valid = await bcrypt.compare(currentPassword, user.password);
+  if (!valid) return res.status(400).json({ error: 'Неверный текущий пароль' });
+
+  user.password = await bcrypt.hash(newPassword, 10);
+  saveDB(db);
+  res.json({ ok: true });
+});
+
+// ─── Users ────────────────────────────────────────────────────────────────────
 
 app.get('/users', authMiddleware, (req, res) => {
   const db = loadDB();
   const q = (req.query.q || '').toLowerCase();
   const users = db.users
     .filter(u => u.id !== req.user.id && u.username.toLowerCase().includes(q))
-    .map(u => ({ id: u.id, username: u.username }));
+    .map(safeUser);
   res.json(users);
 });
 
-// ─── Chats ───────────────────────────────────────────────────────────────────
+// ─── Chats ────────────────────────────────────────────────────────────────────
 
 app.get('/chats', authMiddleware, (req, res) => {
   const db = loadDB();
@@ -129,7 +196,7 @@ app.get('/chats', authMiddleware, (req, res) => {
       displayName = otherUser?.username || 'Неизвестный';
     }
 
-    return { ...chat, displayName, lastMessage, unread };
+    return { ...chat, displayName, lastMessage, unread, otherUserAvatar: otherUser?.avatar || null };
   });
 
   res.json(enriched.sort((a, b) => {
@@ -170,15 +237,13 @@ app.post('/chats', authMiddleware, (req, res) => {
 
   allMembers.forEach(memberId => {
     const sid = onlineUsers.get(memberId);
-    if (sid) {
-      io.to(sid).emit('new_chat', { ...chat, displayName: chat.name });
-    }
+    if (sid) io.to(sid).emit('new_chat', chat);
   });
 
   res.json(chat);
 });
 
-// ─── Messages ────────────────────────────────────────────────────────────────
+// ─── Messages ─────────────────────────────────────────────────────────────────
 
 app.get('/messages/:chatId', authMiddleware, (req, res) => {
   const db = loadDB();
@@ -187,17 +252,11 @@ app.get('/messages/:chatId', authMiddleware, (req, res) => {
     return res.status(403).json({ error: 'Нет доступа' });
 
   const messages = db.messages.filter(m => m.chatId === req.params.chatId);
-
-  // Mark as read
   let changed = false;
   messages.forEach(m => {
-    if (!m.readBy.includes(req.user.id)) {
-      m.readBy.push(req.user.id);
-      changed = true;
-    }
+    if (!m.readBy.includes(req.user.id)) { m.readBy.push(req.user.id); changed = true; }
   });
   if (changed) saveDB(db);
-
   res.json(messages);
 });
 
@@ -206,7 +265,7 @@ app.get('/messages/:chatId', authMiddleware, (req, res) => {
 app.post('/upload', authMiddleware, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
   res.json({
-    url: `http://localhost:3001/uploads/${req.file.filename}`,
+    url: `${getBaseUrl(req)}/uploads/${req.file.filename}`,
     name: req.file.originalname,
     size: req.file.size,
     mimetype: req.file.mimetype
@@ -215,7 +274,7 @@ app.post('/upload', authMiddleware, upload.single('file'), (req, res) => {
 
 // ─── Socket.io ────────────────────────────────────────────────────────────────
 
-const onlineUsers = new Map(); // userId -> socketId
+const onlineUsers = new Map();
 
 io.use((socket, next) => {
   try {
@@ -248,22 +307,51 @@ io.on('connection', (socket) => {
       senderName: socket.user.username,
       text: text || null,
       file: file || null,
+      reactions: [],
       createdAt: new Date().toISOString(),
       readBy: [userId]
     };
 
     db.messages.push(message);
     saveDB(db);
-
     io.to(chatId).emit('new_message', message);
+  });
+
+  socket.on('add_reaction', ({ messageId, emoji }) => {
+    const db = loadDB();
+    const msg = db.messages.find(m => m.id === messageId);
+    if (!msg) return;
+
+    if (!msg.reactions) msg.reactions = [];
+    const existing = msg.reactions.find(r => r.emoji === emoji);
+    if (existing) {
+      if (existing.userIds.includes(userId)) {
+        existing.userIds = existing.userIds.filter(id => id !== userId);
+        if (existing.userIds.length === 0)
+          msg.reactions = msg.reactions.filter(r => r.emoji !== emoji);
+      } else {
+        existing.userIds.push(userId);
+      }
+    } else {
+      msg.reactions.push({ emoji, userIds: [userId] });
+    }
+
+    saveDB(db);
+    io.to(msg.chatId).emit('reaction_updated', { messageId, reactions: msg.reactions });
+  });
+
+  socket.on('set_status', ({ status }) => {
+    const db = loadDB();
+    const user = db.users.find(u => u.id === userId);
+    if (user) { user.status = status; saveDB(db); }
+    io.emit('user_status_detail', { userId, status });
   });
 
   socket.on('read_messages', ({ chatId }) => {
     const db = loadDB();
     let changed = false;
     db.messages.filter(m => m.chatId === chatId && !m.readBy.includes(userId)).forEach(m => {
-      m.readBy.push(userId);
-      changed = true;
+      m.readBy.push(userId); changed = true;
     });
     if (changed) saveDB(db);
     socket.to(chatId).emit('messages_read', { chatId, userId });

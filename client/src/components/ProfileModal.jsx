@@ -1,0 +1,133 @@
+import { useState, useRef } from 'react';
+import { API_URL } from '../api.js';
+
+const STATUS_LABELS = { online: '🟢 В сети', away: '🟡 Отошёл', dnd: '🔴 Не беспокоить' };
+
+export default function ProfileModal({ user, token, onUpdate, onClose }) {
+  const [bio, setBio] = useState(user.bio || '');
+  const [status, setStatus] = useState(user.status || 'online');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState(user.avatar || null);
+  const fileRef = useRef();
+
+  function clear() { setMsg(''); setErr(''); }
+
+  async function saveProfile() {
+    clear(); setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/profile`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ bio, status })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      onUpdate(data);
+      setMsg('Профиль сохранён!');
+    } catch (e) { setErr(e.message); }
+    finally { setLoading(false); }
+  }
+
+  async function changePassword() {
+    clear();
+    if (!currentPassword || !newPassword) { setErr('Заполните оба поля'); return; }
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/change-password`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ currentPassword, newPassword })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setMsg('Пароль изменён!');
+      setCurrentPassword(''); setNewPassword('');
+    } catch (e) { setErr(e.message); }
+    finally { setLoading(false); }
+  }
+
+  async function uploadAvatar(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    clear(); setLoading(true);
+    const form = new FormData();
+    form.append('avatar', file);
+    try {
+      const res = await fetch(`${API_URL}/profile/avatar`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: form
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setAvatarUrl(data.avatar);
+      onUpdate(data);
+      setMsg('Аватар обновлён!');
+    } catch (e) { setErr(e.message); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <h3>Мой профиль</h3>
+
+        <div className="profile-avatar-wrap">
+          <div className="avatar lg" onClick={() => fileRef.current?.click()} style={{ cursor: 'pointer' }}>
+            {avatarUrl ? <img src={avatarUrl} alt="avatar" /> : user.username[0].toUpperCase()}
+          </div>
+          <button className="avatar-upload-btn" onClick={() => fileRef.current?.click()}>
+            Сменить фото
+          </button>
+          <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={uploadAvatar} />
+        </div>
+
+        <div className="profile-section">
+          <label>Имя пользователя</label>
+          <input className="modal-input" value={user.username} disabled style={{ opacity: 0.6 }} />
+        </div>
+
+        <div className="profile-section">
+          <label>О себе</label>
+          <textarea className="modal-input" rows={3} placeholder="Расскажи о себе..." value={bio} onChange={e => setBio(e.target.value)} />
+        </div>
+
+        <div className="profile-section">
+          <label>Статус</label>
+          <select className="status-select" value={status} onChange={e => setStatus(e.target.value)}>
+            {Object.entries(STATUS_LABELS).map(([val, label]) => (
+              <option key={val} value={val}>{label}</option>
+            ))}
+          </select>
+        </div>
+
+        {msg && <div className="success-msg">{msg}</div>}
+        {err && <div className="error-msg">{err}</div>}
+
+        <div className="modal-actions" style={{ marginBottom: 20 }}>
+          <button className="btn btn-secondary" onClick={onClose}>Закрыть</button>
+          <button className="btn btn-primary" onClick={saveProfile} disabled={loading}>Сохранить</button>
+        </div>
+
+        <h3 style={{ fontSize: 15, marginBottom: 14 }}>Сменить пароль</h3>
+
+        <div className="profile-section">
+          <label>Текущий пароль</label>
+          <input className="modal-input" type="password" placeholder="••••••" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} />
+        </div>
+        <div className="profile-section">
+          <label>Новый пароль</label>
+          <input className="modal-input" type="password" placeholder="••••••" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
+        </div>
+
+        <button className="btn btn-primary" style={{ width: '100%' }} onClick={changePassword} disabled={loading}>
+          Изменить пароль
+        </button>
+      </div>
+    </div>
+  );
+}
