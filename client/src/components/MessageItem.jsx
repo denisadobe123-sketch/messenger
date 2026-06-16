@@ -21,7 +21,8 @@ function fileIcon(mime) {
 
 export default function MessageItem({
   msg, isOwn, showSender, isRead, currentUserId, isPinned, highlighted,
-  onReact, onReply, onEdit, onDelete, onPin, onUnpin, onScrollToReply
+  onReact, onReply, onEdit, onDelete, onPin, onUnpin, onScrollToReply,
+  selectMode, selected, onToggleSelect
 }) {
   const [showPicker, setShowPicker] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
@@ -50,8 +51,28 @@ export default function MessageItem({
     );
   }
 
+  if (msg.sticker) {
+    return (
+      <div
+        className={`msg-row ${isOwn ? 'row-out' : 'row-in'} ${selectMode ? 'select-mode' : ''}`}
+        onClick={() => selectMode && onToggleSelect?.(msg.id)}
+      >
+        {selectMode && <span className={`msg-checkbox ${selected ? 'checked' : ''}`}>{selected && '✓'}</span>}
+        <div className="sticker-message" id={`msg-${msg.id}`}>
+          <span className="sticker-emoji">{msg.sticker}</span>
+          <span className="sticker-time">{time}</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className={`msg-bubble ${isOwn ? 'msg-out' : 'msg-in'} ${highlighted ? 'search-highlight' : ''}`} id={`msg-${msg.id}`}>
+    <div
+      className={`msg-row ${isOwn ? 'row-out' : 'row-in'} ${selectMode ? 'select-mode' : ''}`}
+      onClick={() => selectMode && onToggleSelect?.(msg.id)}
+    >
+      {selectMode && <span className={`msg-checkbox ${selected ? 'checked' : ''}`}>{selected && '✓'}</span>}
+      <div className={`msg-bubble ${isOwn ? 'msg-out' : 'msg-in'} ${highlighted ? 'search-highlight' : ''}`} id={`msg-${msg.id}`}>
       {!isOwn && showSender && <div className="msg-sender">{msg.senderName}</div>}
 
       {msg.replyTo && (
@@ -125,6 +146,7 @@ export default function MessageItem({
         {msg.edited && <span className="msg-edited-label">изменено</span>}
         <span className="msg-time">{time}</span>
         {isOwn && <span className={`msg-read ${isRead ? 'seen' : ''}`}>{isRead ? '✓✓' : '✓'}</span>}
+      </div>
       </div>
     </div>
   );

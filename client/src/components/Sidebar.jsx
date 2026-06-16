@@ -36,6 +36,14 @@ function Avatar({ name, avatar, status, online, size = '' }) {
   );
 }
 
+function usePersistedState(key, initial) {
+  const [value, setValue] = useState(() => {
+    try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : initial; } catch { return initial; }
+  });
+  useEffect(() => { localStorage.setItem(key, JSON.stringify(value)); }, [key, value]);
+  return [value, setValue];
+}
+
 export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses, userProfiles, selectedChat, onSelectChat, onNewChat, token, onProfileUpdate, onLogout }) {
   const [tab, setTab] = useState('chats');
   const [search, setSearch] = useState('');
@@ -44,6 +52,41 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
   const [groupName, setGroupName] = useState('');
   const [groupMembers, setGroupMembers] = useState([]);
   const [creating, setCreating] = useState(false);
+
+  const [pinnedIds, setPinnedIds] = usePersistedState(`pinned_${currentUser.id}`, []);
+  const [folders, setFolders] = usePersistedState(`folders_${currentUser.id}`, []);
+  const [activeFolder, setActiveFolder] = useState('all');
+  const [showFolderModal, setShowFolderModal] = useState(false);
+  const [folderName, setFolderName] = useState('');
+  const [folderChats, setFolderChats] = useState([]);
+  const [chatMenuId, setChatMenuId] = useState(null);
+
+  function togglePin(chatId) {
+    setPinnedIds(prev => prev.includes(chatId) ? prev.filter(id => id !== chatId) : [...prev, chatId]);
+    setChatMenuId(null);
+  }
+
+  function createFolder() {
+    if (!folderName.trim() || folderChats.length === 0) return;
+    setFolders(prev => [...prev, { id: Date.now().toString(), name: folderName.trim(), chatIds: folderChats }]);
+    setShowFolderModal(false); setFolderName(''); setFolderChats([]);
+  }
+
+  function deleteFolder(id) {
+    setFolders(prev => prev.filter(f => f.id !== id));
+    if (activeFolder === id) setActiveFolder('all');
+  }
+
+  function toggleFolderChat(chatId) {
+    setFolderChats(prev => prev.includes(chatId) ? prev.filter(id => id !== chatId) : [...prev, chatId]);
+  }
+
+  useEffect(() => {
+    if (!chatMenuId) return;
+    function close() { setChatMenuId(null); }
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [chatMenuId]);
 
   useEffect(() => {
     if (tab !== 'users') return;
@@ -78,7 +121,16 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
     setShowGroup(false); setGroupName(''); setGroupMembers([]); setCreating(false);
   }
 
-  const filteredChats = chats.filter(c => (c.displayName || '').toLowerCase().includes(search.toLowerCase()));
+  let visibleChats = chats.filter(c => (c.displayName || '').toLowerCase().includes(search.toLowerCase()));
+  if (activeFolder !== 'all') {
+    const folder = folders.find(f => f.id === activeFolder);
+    if (folder) visibleChats = visibleChats.filter(c => folder.chatIds.includes(c.id));
+  }
+  const filteredChats = [...visibleChats].sort((a, b) => {
+    const aPinned = pinnedIds.includes(a.id), bPinned = pinnedIds.includes(b.id);
+    if (aPinned !== bPinned) return aPinned ? -1 : 1;
+    return 0;
+  });
   const myStatus = currentUser.status || 'online';
 
   return (
@@ -111,6 +163,18 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
         <button className={`sidebar-tab ${tab === 'profile' ? 'active' : ''}`} onClick={() => { setTab('profile'); setSearch(''); }}>Профиль</button>
       </div>
 
+      {tab === 'chats' && (
+        <div className="folder-tabs">
+          <button className={`folder-tab ${activeFolder === 'all' ? 'active' : ''}`} onClick={() => setActiveFolder('all')}>Все</button>
+          {folders.map(f => (
+            <button key={f.id} className={`folder-tab ${activeFolder === f.id ? 'active' : ''}`} onClick={() => setActiveFolder(f.id)} onDoubleClick={() => deleteFolder(f.id)}>
+              {f.name}
+            </button>
+          ))}
+          <button className="folder-tab folder-add" onClick={() => setShowFolderModal(true)} title="Новая папка">+</button>
+        </div>
+      )}
+
       {tab === 'profile' ? (
         <ProfilePage user={currentUser} token={token} onUpdate={onProfileUpdate} onLogout={onLogout} />
       ) : tab === 'chats' ? (
@@ -128,6 +192,7 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
             const isOnline = otherId ? onlineUsers.has(otherId) : false;
             const otherStatus = otherId ? (userStatuses.get(otherId) || 'online') : 'online';
             const otherProfile = otherId ? userProfiles.get(otherId) : null;
+            const isPinned = pinnedIds.includes(chat.id);
 
             return (
               <div key={chat.id} className={`chat-item ${selectedChat?.id === chat.id ? 'active' : ''}`} onClick={() => onSelectChat(chat)}>
@@ -138,7 +203,7 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
                   {chat.type === 'private' && <StatusDot status={otherStatus} online={isOnline} />}
                 </div>
                 <div className="chat-info">
-                  <div className="chat-name">{chat.displayName}</div>
+                  <div className="chat-name">{isPinned && '📌 '}{chat.displayName}</div>
                   <div className="chat-preview">
                     {chat.lastMessage?.senderId === currentUser.id && chat.lastMessage ? 'Вы: ' : ''}
                     {previewText(chat.lastMessage)}
@@ -147,6 +212,16 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
                 <div className="chat-meta">
                   <span className="chat-time">{formatTime(chat.lastMessage?.createdAt || chat.createdAt)}</span>
                   {chat.unread > 0 && <span className="unread-badge">{chat.unread}</span>}
+                </div>
+                <div className="chat-item-menu-wrap">
+                  <button className="chat-item-menu-btn" onClick={e => { e.stopPropagation(); setChatMenuId(p => p === chat.id ? null : chat.id); }}>⋯</button>
+                  {chatMenuId === chat.id && (
+                    <div className="msg-context-menu chat-item-menu" onClick={e => e.stopPropagation()}>
+                      <button className="msg-context-item" onClick={() => togglePin(chat.id)}>
+                        {isPinned ? '📌 Открепить' : '📌 Закрепить'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -191,6 +266,32 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
           </svg>
+        </div>
+      )}
+
+      {showFolderModal && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowFolderModal(false)}>
+          <div className="modal">
+            <h3>Новая папка</h3>
+            <input className="modal-input" placeholder="Название папки" value={folderName} onChange={e => setFolderName(e.target.value)} autoFocus />
+            <div className="modal-members">
+              {chats.map(c => (
+                <div key={c.id} className={`user-item ${folderChats.includes(c.id) ? 'selected' : ''}`} onClick={() => toggleFolderChat(c.id)}>
+                  <div className="avatar sm">{getInitials(c.displayName)}</div>
+                  <span className="user-name">{c.displayName}</span>
+                  {folderChats.includes(c.id) && (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ marginLeft: 'auto', color: 'var(--accent)' }}>
+                      <path d="M20 6L9 17l-5-5"/>
+                    </svg>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={() => setShowFolderModal(false)}>Отмена</button>
+              <button className="btn btn-primary" onClick={createFolder} disabled={!folderName.trim() || folderChats.length === 0}>Создать</button>
+            </div>
+          </div>
         </div>
       )}
 

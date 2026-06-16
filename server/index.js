@@ -317,7 +317,7 @@ io.on('connection', (socket) => {
 
   socket.on('send_message', (data) => {
     const db = loadDB();
-    const { chatId, text, file, replyTo, voice } = data;
+    const { chatId, text, file, replyTo, voice, sticker } = data;
     const chat = db.chats.find(c => c.id === chatId);
     if (!chat || !chat.members.includes(userId)) return;
 
@@ -328,7 +328,7 @@ io.on('connection', (socket) => {
         replySnippet = {
           id: original.id,
           senderName: original.senderName,
-          text: original.deleted ? 'Сообщение удалено' : (original.text || (original.voice ? '🎤 Голосовое' : (original.file ? '📎 Файл' : '')))
+          text: original.deleted ? 'Сообщение удалено' : (original.text || (original.voice ? '🎤 Голосовое' : (original.sticker ? original.sticker : (original.file ? '📎 Файл' : ''))))
         };
       }
     }
@@ -341,6 +341,7 @@ io.on('connection', (socket) => {
       text: text || null,
       file: file || null,
       voice: voice || null,
+      sticker: sticker || null,
       replyTo: replySnippet,
       reactions: [],
       edited: false,
@@ -374,6 +375,7 @@ io.on('connection', (socket) => {
     msg.text = null;
     msg.file = null;
     msg.voice = null;
+    msg.sticker = null;
     saveDB(db);
 
     const chat = db.chats.find(c => c.id === msg.chatId);

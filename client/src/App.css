@@ -719,3 +719,97 @@ body {
 .sidebar, .chat-window { backdrop-filter: blur(0px); }
 
 ::selection { background: rgba(43,127,220,0.35); }
+
+/* ── Stickers ────────────────────────────────────── */
+.sticker-picker-wrap { position: relative; }
+.sticker-picker {
+  position: absolute; bottom: 50px; right: 0; width: 280px; background: var(--bg-secondary);
+  border: 1px solid var(--border); border-radius: 16px; padding: 10px; box-shadow: 0 12px 32px var(--shadow);
+  z-index: 60; animation: slideUp 0.15s ease;
+}
+.sticker-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin-bottom: 8px; }
+.sticker-option { background: none; border: none; font-size: 26px; cursor: pointer; padding: 6px; border-radius: 10px; transition: all 0.12s; }
+.sticker-option:hover { background: var(--bg-hover); transform: scale(1.15); }
+.sticker-tabs { display: flex; gap: 4px; border-top: 1px solid var(--border); padding-top: 8px; }
+.sticker-tab { flex: 1; background: none; border: none; font-size: 18px; padding: 6px; border-radius: 8px; cursor: pointer; opacity: 0.5; transition: all 0.15s; }
+.sticker-tab.active { opacity: 1; background: var(--bg-hover); }
+
+.msg-row { display: flex; align-items: center; gap: 8px; }
+.row-out { align-self: flex-end; flex-direction: row; justify-content: flex-end; }
+.row-in { align-self: flex-start; }
+.row-out .msg-bubble, .row-in .msg-bubble { align-self: unset; }
+
+.sticker-message { display: flex; flex-direction: column; align-items: center; gap: 2px; animation: msgIn 0.18s ease; }
+.sticker-emoji { font-size: 64px; line-height: 1; }
+.sticker-time { font-size: 11px; color: var(--text-muted); }
+
+/* ── Multi-select ────────────────────────────────── */
+.select-bar {
+  display: flex; align-items: center; gap: 10px; padding: 10px 18px;
+  background: var(--bg-tertiary); border-bottom: 1px solid var(--border); font-size: 13px;
+}
+.select-bar .btn { flex: none; padding: 6px 14px; font-size: 13px; }
+.msg-checkbox {
+  width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--text-muted);
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0; cursor: pointer;
+  font-size: 12px; color: white; transition: all 0.15s;
+}
+.msg-checkbox.checked { background: var(--accent); border-color: var(--accent); }
+.select-mode { cursor: pointer; }
+.select-mode .msg-bubble { pointer-events: none; }
+
+.active-icon { color: var(--accent); background: rgba(43,127,220,0.15); }
+
+/* ── Drag & drop ─────────────────────────────────── */
+.messages-wrap { position: relative; }
+.messages-wrap.dragging { background: rgba(43,127,220,0.04); }
+.drop-overlay {
+  position: absolute; inset: 8px; border: 2px dashed var(--accent); border-radius: 16px;
+  background: rgba(23,33,43,0.85); display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 12px; color: var(--accent); z-index: 40; pointer-events: none;
+}
+
+/* ── Chat item menu / folders ────────────────────── */
+.chat-item-menu-wrap { position: relative; flex-shrink: 0; }
+.chat-item-menu-btn {
+  background: none; border: none; color: var(--text-muted); cursor: pointer;
+  padding: 2px 6px; border-radius: 6px; font-size: 14px; opacity: 0; transition: all 0.15s;
+}
+.chat-item:hover .chat-item-menu-btn { opacity: 1; }
+.chat-item-menu-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.chat-item-menu { top: 22px; right: 0; }
+
+.folder-tabs {
+  display: flex; gap: 6px; padding: 8px 12px; overflow-x: auto; border-bottom: 1px solid var(--border);
+}
+.folder-tabs::-webkit-scrollbar { display: none; }
+.folder-tab {
+  flex-shrink: 0; padding: 6px 14px; border: none; background: var(--bg-primary);
+  color: var(--text-secondary); border-radius: 16px; cursor: pointer; font-size: 12px; font-weight: 600;
+  transition: all 0.15s; white-space: nowrap;
+}
+.folder-tab.active { background: var(--accent); color: white; }
+.folder-tab.folder-add { width: 28px; flex-shrink: 0; font-size: 16px; font-weight: 700; padding: 6px 0; }
+
+/* ── Toast notifications ─────────────────────────── */
+.toast-wrap {
+  position: fixed; top: 16px; right: 16px; z-index: 300; display: flex; flex-direction: column; gap: 8px;
+}
+.toast-item {
+  display: flex; align-items: center; gap: 10px; background: var(--bg-secondary);
+  border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; width: 300px;
+  box-shadow: 0 12px 32px var(--shadow); cursor: pointer; animation: toastIn 0.25s ease;
+}
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(40px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.toast-content { flex: 1; min-width: 0; }
+.toast-title { font-weight: 700; font-size: 13.5px; }
+.toast-body { font-size: 13px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.toast-close { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 16px; padding: 2px 4px; }
+
+@media (max-width: 760px) {
+  .toast-wrap { left: 12px; right: 12px; top: max(12px, env(safe-area-inset-top)); }
+  .toast-item { width: 100%; }
+}

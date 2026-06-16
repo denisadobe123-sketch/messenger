@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import MessageItem from './MessageItem.jsx';
+import StickerPicker from './StickerPicker.jsx';
 import { getSocket } from '../socket.js';
 import { API_URL } from '../api.js';
 
@@ -30,6 +31,11 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   const [searchResults, setSearchResults] = useState([]);
   const [searchIndex, setSearchIndex] = useState(0);
   const [highlightedId, setHighlightedId] = useState(null);
+  const [showStickers, setShowStickers] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const dragCounter = useRef(0);
 
   const [recording, setRecording] = useState(false);
   const [recordTime, setRecordTime] = useState(0);
@@ -48,6 +54,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     setMessages([]); setText(''); setFileToSend(null); setTypingUsers(new Map());
     setReplyingTo(null); setEditingMsg(null); setShowSearch(false); setSearchQuery(''); setSearchResults([]);
     setPinnedMessageId(chat.pinnedMessageId || null);
+    setSelectMode(false); setSelectedIds(new Set());
 
     fetch(`${API_URL}/messages/${chat.id}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
@@ -73,7 +80,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
       setMessages(prev => prev.map(m => m.id === messageId ? { ...m, text, edited } : m));
     }
     function onDeleted({ messageId }) {
-      setMessages(prev => prev.map(m => m.id === messageId ? { ...m, deleted: true, text: null, file: null, voice: null } : m));
+      setMessages(prev => prev.map(m => m.id === messageId ? { ...m, deleted: true, text: null, file: null, voice: null, sticker: null } : m));
     }
     function onPinned({ chatId, pinnedMessageId }) {
       if (chatId === chat?.id) setPinnedMessageId(pinnedMessageId);
@@ -152,6 +159,41 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   function handleDelete(messageId) { if (confirm('Удалить сообщение?')) socket?.emit('delete_message', { messageId }); }
   function handlePin(messageId) { socket?.emit('pin_message', { chatId: chat.id, messageId }); }
   function handleUnpin() { socket?.emit('unpin_message', { chatId: chat.id }); }
+
+  function sendSticker(emoji) {
+    if (!socket || !chat) return;
+    socket.emit('send_message', { chatId: chat.id, sticker: emoji, replyTo: replyingTo?.id || null });
+    setReplyingTo(null);
+  }
+
+  // ── Drag & drop files ────────────────────────────────────────────────────
+  function onDragEnter(e) { e.preventDefault(); dragCounter.current++; setIsDragging(true); }
+  function onDragLeave(e) { e.preventDefault(); dragCounter.current--; if (dragCounter.current <= 0) setIsDragging(false); }
+  function onDragOver(e) { e.preventDefault(); }
+  function onDrop(e) {
+    e.preventDefault();
+    dragCounter.current = 0; setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) setFileToSend(file);
+  }
+
+  // ── Multi-select ─────────────────────────────────────────────────────────
+  function toggleSelectMode() {
+    setSelectMode(p => !p);
+    setSelectedIds(new Set());
+  }
+  function toggleSelectMessage(id) {
+    setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+  function deleteSelected() {
+    if (!selectedIds.size) return;
+    if (!confirm(`Удалить ${selectedIds.size} сообщений?`)) return;
+    selectedIds.forEach(id => {
+      const msg = messages.find(m => m.id === id);
+      if (msg && msg.senderId === currentUser.id) socket?.emit('delete_message', { messageId: id });
+    });
+    setSelectMode(false); setSelectedIds(new Set());
+  }
 
   function scrollToMessage(messageId) {
     const el = document.getElementById(`msg-${messageId}`);
@@ -285,7 +327,20 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
             <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
           </svg>
         </button>
+        <button className={`icon-btn ${selectMode ? 'active-icon' : ''}`} title="Выбрать сообщения" onClick={toggleSelectMode}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+          </svg>
+        </button>
       </div>
+
+      {selectMode && (
+        <div className="select-bar">
+          <span>{selectedIds.size} выбрано</span>
+          <button className="btn btn-danger" onClick={deleteSelected} disabled={!selectedIds.size}>Удалить</button>
+          <button className="btn btn-secondary" onClick={toggleSelectMode}>Отмена</button>
+        </div>
+      )}
 
       {showSearch && (
         <div className="chat-search-bar">
@@ -306,13 +361,24 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>
           <div className="pinned-banner-text">
             <div className="pinned-banner-label">Закреплено</div>
-            <div className="pinned-banner-content">{pinnedMsg.text || (pinnedMsg.voice ? '🎤 Голосовое' : '📎 Файл')}</div>
+            <div className="pinned-banner-content">{pinnedMsg.sticker || pinnedMsg.text || (pinnedMsg.voice ? '🎤 Голосовое' : '📎 Файл')}</div>
           </div>
           <button className="pinned-unpin-btn" onClick={e => { e.stopPropagation(); handleUnpin(); }}>✕</button>
         </div>
       )}
 
-      <div className="messages-wrap">
+      <div
+        className={`messages-wrap ${isDragging ? 'dragging' : ''}`}
+        onDragEnter={onDragEnter} onDragLeave={onDragLeave} onDragOver={onDragOver} onDrop={onDrop}
+      >
+        {isDragging && (
+          <div className="drop-overlay">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+            </svg>
+            <span>Отпусти файл, чтобы прикрепить</span>
+          </div>
+        )}
         {items.map((item, i) =>
           item.type === 'day'
             ? <div key={i} className="msg-day-label">{item.label}</div>
@@ -326,6 +392,9 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
                 currentUserId={currentUser.id}
                 isPinned={item.msg.id === pinnedMessageId}
                 highlighted={item.msg.id === highlightedId}
+                selectMode={selectMode}
+                selected={selectedIds.has(item.msg.id)}
+                onToggleSelect={toggleSelectMessage}
                 onReact={handleReact}
                 onReply={handleReply}
                 onEdit={handleEdit}
@@ -347,7 +416,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
           <div className="reply-preview-bar" />
           <div className="reply-preview-content">
             <div className="reply-preview-label">Ответ {replyingTo.senderName}</div>
-            <div className="reply-preview-text">{replyingTo.text || (replyingTo.voice ? '🎤 Голосовое' : '📎 Файл')}</div>
+            <div className="reply-preview-text">{replyingTo.sticker || replyingTo.text || (replyingTo.voice ? '🎤 Голосовое' : '📎 Файл')}</div>
           </div>
           <button className="reply-preview-cancel" onClick={() => setReplyingTo(null)}>✕</button>
         </div>
@@ -389,6 +458,10 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
             onChange={handleTextChange} onKeyDown={onKeyDown} rows={1}
             onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'; }}
           />
+          <div className="sticker-picker-wrap">
+            <button className="attach-btn" onClick={() => setShowStickers(p => !p)} title="Стикеры">😀</button>
+            {showStickers && <StickerPicker onPick={sendSticker} onClose={() => setShowStickers(false)} />}
+          </div>
           {!text.trim() && !fileToSend ? (
             <button className="voice-record-btn" onClick={startRecording} title="Голосовое сообщение">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

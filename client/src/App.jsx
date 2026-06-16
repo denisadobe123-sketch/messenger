@@ -3,6 +3,7 @@ import Auth from './components/Auth.jsx';
 import Sidebar from './components/Sidebar.jsx';
 import ChatWindow from './components/ChatWindow.jsx';
 import CallModal from './components/CallModal.jsx';
+import Toast from './components/Toast.jsx';
 import { connectSocket, disconnectSocket, getSocket } from './socket.js';
 import { API_URL } from './api.js';
 import { getTheme, applyTheme } from './theme.js';
@@ -45,7 +46,15 @@ export default function App() {
   const [userStatuses, setUserStatuses] = useState(new Map());
   const [userProfiles, setUserProfiles] = useState(new Map());
   const [activeCall, setActiveCall] = useState(null);
+  const [toasts, setToasts] = useState([]);
   const selectedChatRef = useRef(null);
+
+  function pushToast(toast) {
+    setToasts(prev => [...prev, { id: Date.now() + Math.random(), ...toast }]);
+  }
+  function dismissToast(id) {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }
 
   useEffect(() => { selectedChatRef.current = selectedChat; }, [selectedChat]);
   useEffect(() => { applyTheme(getTheme()); }, []);
@@ -96,7 +105,9 @@ export default function App() {
 
       if (!isActive && msg.senderId !== user.id) {
         playNotificationSound();
-        showBrowserNotification(msg.senderName, msg.text || '📎 Файл');
+        const body = msg.sticker || msg.text || (msg.voice ? '🎤 Голосовое' : '📎 Файл');
+        showBrowserNotification(msg.senderName, body);
+        pushToast({ chatId: msg.chatId, title: msg.senderName, body, avatar: userProfiles.get(msg.senderId)?.avatar });
       }
     });
 
@@ -195,6 +206,11 @@ export default function App() {
           onEnd={() => setActiveCall(null)}
         />
       )}
+      <Toast
+        toasts={toasts}
+        onDismiss={dismissToast}
+        onClick={t => { const chat = chats.find(c => c.id === t.chatId); if (chat) handleSelectChat(chat); }}
+      />
     </div>
   );
 }
