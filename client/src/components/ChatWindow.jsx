@@ -16,7 +16,7 @@ function groupByDay(messages) {
   return groups;
 }
 
-export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuses, token, onStartCall }) {
+export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuses, token, onStartCall, onBack }) {
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const [fileToSend, setFileToSend] = useState(null);
@@ -253,6 +253,11 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   return (
     <div className="chat-window">
       <div className="chat-header">
+        <button className="icon-btn back-btn" onClick={onBack}>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polyline points="15 18 9 12 15 6"/>
+          </svg>
+        </button>
         <div className={`avatar ${chat.type === 'group' ? 'group' : ''}`} style={{ width: 38, height: 38, fontSize: 15 }}>
           {(chat.displayName || '?')[0].toUpperCase()}
           {chat.type === 'private' && <span className={`status-dot ${isOnline ? otherStatus : 'offline'}`} />}

@@ -166,7 +166,7 @@ export default function App() {
   if (!user) return <Auth onAuth={handleAuth} />;
 
   return (
-    <div className="app-layout">
+    <div className={`app-layout ${selectedChat ? 'chat-open' : ''}`}>
       <Sidebar
         chats={chats}
         currentUser={user}
@@ -186,6 +186,7 @@ export default function App() {
         userStatuses={userStatuses}
         token={token}
         onStartCall={handleStartCall}
+        onBack={() => setSelectedChat(null)}
       />
       {showProfile && (
         <ProfileModal
