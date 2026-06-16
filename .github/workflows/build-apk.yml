@@ -30,13 +30,13 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Sync Capacitor
-        working-directory: client
-        run: npx cap sync android
-
       - name: Grant execute permission for gradlew
         working-directory: client/android
         run: chmod +x gradlew
+
+      - name: Sync Capacitor
+        working-directory: client
+        run: npx cap sync android
 
       - name: Build debug APK
         working-directory: client/android
