@@ -42,6 +42,16 @@ const isProd = fs.existsSync(path.join(CLIENT_DIST, 'index.html'));
 
 app.use(cors());
 app.use(express.json());
+
+// API-ответы не должны кешироваться браузером — иначе после логина под
+// другим пользователем или после новых сообщений отдаются старые данные.
+app.use((req, res, next) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  next();
+});
+
 app.use('/uploads', express.static(UPLOADS_DIR));
 
 if (isProd) {
