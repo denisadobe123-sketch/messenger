@@ -327,7 +327,7 @@ io.on('connection', (socket) => {
 
   socket.on('send_message', (data) => {
     const db = loadDB();
-    const { chatId, text, file, replyTo, voice, sticker } = data;
+    const { chatId, text, file, replyTo, voice, sticker, forwardOf } = data;
     const chat = db.chats.find(c => c.id === chatId);
     if (!chat || !chat.members.includes(userId)) return;
 
@@ -352,6 +352,7 @@ io.on('connection', (socket) => {
       file: file || null,
       voice: voice || null,
       sticker: sticker || null,
+      forwardOf: forwardOf || null,
       replyTo: replySnippet,
       reactions: [],
       edited: false,

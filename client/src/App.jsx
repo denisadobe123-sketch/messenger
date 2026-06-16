@@ -191,6 +191,7 @@ export default function App() {
       />
       <ChatWindow
         chat={selectedChat}
+        chats={chats}
         currentUser={user}
         onlineUsers={onlineUsers}
         userStatuses={userStatuses}

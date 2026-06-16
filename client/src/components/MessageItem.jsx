@@ -19,14 +19,19 @@ function fileIcon(mime) {
   return '📎';
 }
 
+const SWIPE_REPLY_THRESHOLD = 60;
+
 export default function MessageItem({
   msg, isOwn, showSender, isRead, currentUserId, isPinned, highlighted,
-  onReact, onReply, onEdit, onDelete, onPin, onUnpin, onScrollToReply,
+  onReact, onReply, onEdit, onDelete, onPin, onUnpin, onScrollToReply, onForward,
   selectMode, selected, onToggleSelect
 }) {
   const [showPicker, setShowPicker] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
+  const [swipeX, setSwipeX] = useState(0);
   const menuRef = useRef(null);
+  const swipeStartRef = useRef(0);
+  const swipingRef = useRef(false);
   const time = new Date(msg.createdAt).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
   const isImage = msg.file?.mimetype?.startsWith('image/');
 
@@ -40,6 +45,22 @@ export default function MessageItem({
   }, [showMenu]);
 
   function handleReact(emoji) { onReact?.(msg.id, emoji); setShowPicker(false); }
+
+  function onTouchStart(e) {
+    if (selectMode) return;
+    swipeStartRef.current = e.touches[0].clientX;
+    swipingRef.current = true;
+  }
+  function onTouchMove(e) {
+    if (!swipingRef.current) return;
+    const dx = e.touches[0].clientX - swipeStartRef.current;
+    setSwipeX(Math.max(-40, Math.min(40, dx)));
+  }
+  function onTouchEnd() {
+    swipingRef.current = false;
+    if (Math.abs(swipeX) > SWIPE_REPLY_THRESHOLD - 20 && !msg.deleted) onReply?.(msg);
+    setSwipeX(0);
+  }
 
   if (msg.deleted) {
     return (
@@ -70,9 +91,21 @@ export default function MessageItem({
     <div
       className={`msg-row ${isOwn ? 'row-out' : 'row-in'} ${selectMode ? 'select-mode' : ''}`}
       onClick={() => selectMode && onToggleSelect?.(msg.id)}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
     >
       {selectMode && <span className={`msg-checkbox ${selected ? 'checked' : ''}`}>{selected && '✓'}</span>}
-      <div className={`msg-bubble ${isOwn ? 'msg-out' : 'msg-in'} ${highlighted ? 'search-highlight' : ''}`} id={`msg-${msg.id}`}>
+      <div
+        className={`msg-bubble ${isOwn ? 'msg-out' : 'msg-in'} ${highlighted ? 'search-highlight' : ''}`}
+        id={`msg-${msg.id}`}
+        style={swipeX ? { transform: `translateX(${swipeX}px)` } : undefined}
+      >
+      {msg.forwardOf && (
+        <div className="forward-quote">
+          ➡️ Переслано от {msg.forwardOf.senderName}
+        </div>
+      )}
       {!isOwn && showSender && <div className="msg-sender">{msg.senderName}</div>}
 
       {msg.replyTo && (
@@ -121,6 +154,7 @@ export default function MessageItem({
           {showMenu && (
             <div className="msg-context-menu">
               <button className="msg-context-item" onClick={() => { onReply?.(msg); setShowMenu(false); }}>↩️ Ответить</button>
+              <button className="msg-context-item" onClick={() => { onForward?.(msg); setShowMenu(false); }}>➡️ Переслать</button>
               {isPinned
                 ? <button className="msg-context-item" onClick={() => { onUnpin?.(); setShowMenu(false); }}>📌 Открепить</button>
                 : <button className="msg-context-item" onClick={() => { onPin?.(msg.id); setShowMenu(false); }}>📌 Закрепить</button>}

@@ -17,7 +17,7 @@ function groupByDay(messages) {
   return groups;
 }
 
-export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuses, token, onStartCall, onBack }) {
+export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuses, token, onStartCall, onBack, chats }) {
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const [fileToSend, setFileToSend] = useState(null);
@@ -34,6 +34,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   const [showStickers, setShowStickers] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
+  const [forwardingMsg, setForwardingMsg] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const dragCounter = useRef(0);
 
@@ -159,6 +160,20 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   function handleDelete(messageId) { if (confirm('Удалить сообщение?')) socket?.emit('delete_message', { messageId }); }
   function handlePin(messageId) { socket?.emit('pin_message', { chatId: chat.id, messageId }); }
   function handleUnpin() { socket?.emit('unpin_message', { chatId: chat.id }); }
+  function handleForward(msg) { setForwardingMsg(msg); }
+
+  function sendForward(targetChatId) {
+    if (!socket || !forwardingMsg) return;
+    socket.emit('send_message', {
+      chatId: targetChatId,
+      text: forwardingMsg.text || null,
+      file: forwardingMsg.file || null,
+      voice: forwardingMsg.voice || null,
+      sticker: forwardingMsg.sticker || null,
+      forwardOf: { senderName: forwardingMsg.senderName }
+    });
+    setForwardingMsg(null);
+  }
 
   function sendSticker(emoji) {
     if (!socket || !chat) return;
@@ -402,6 +417,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
                 onPin={handlePin}
                 onUnpin={handleUnpin}
                 onScrollToReply={scrollToMessage}
+                onForward={handleForward}
               />
             )
         )}
@@ -475,6 +491,28 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
               </svg>
             </button>
           )}
+        </div>
+      )}
+
+      {forwardingMsg && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setForwardingMsg(null)}>
+          <div className="modal">
+            <h3>Переслать в...</h3>
+            <div className="modal-members">
+              {(chats || []).filter(c => c.id !== chat.id).map(c => (
+                <div key={c.id} className="user-item" onClick={() => sendForward(c.id)}>
+                  <div className="avatar sm">{(c.displayName || '?')[0].toUpperCase()}</div>
+                  <span className="user-name">{c.displayName}</span>
+                </div>
+              ))}
+              {(!chats || chats.filter(c => c.id !== chat.id).length === 0) && (
+                <div className="empty-state" style={{ padding: 20 }}>Нет других чатов</div>
+              )}
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={() => setForwardingMsg(null)}>Отмена</button>
+            </div>
+          </div>
         </div>
       )}
     </div>

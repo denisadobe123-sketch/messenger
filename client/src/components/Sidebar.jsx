@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { API_URL } from '../api.js';
+import { getAvatarColor } from '../avatarColor.js';
 import ProfilePage from './ProfilePage.jsx';
+import ChatItem from './ChatItem.jsx';
 
 const STATUS_LABELS = { online: 'В сети', away: 'Отошёл', dnd: 'Не беспокоить', offline: 'Не в сети' };
 
@@ -16,24 +18,9 @@ function formatTime(iso) {
 
 function getInitials(name) { return (name || '?')[0].toUpperCase(); }
 
-function previewText(msg) {
-  if (!msg) return 'Нет сообщений';
-  if (msg.file) return msg.file.mimetype?.startsWith('image/') ? '🖼 Фото' : '📎 ' + msg.file.name;
-  return msg.text || '';
-}
-
 function StatusDot({ status, online }) {
   const s = online === false ? 'offline' : (status || 'online');
   return <span className={`status-dot ${s}`} />;
-}
-
-function Avatar({ name, avatar, status, online, size = '' }) {
-  return (
-    <div className={`avatar ${size}`}>
-      {avatar ? <img src={avatar} alt={name} /> : getInitials(name)}
-      <StatusDot status={status} online={online} />
-    </div>
-  );
 }
 
 function usePersistedState(key, initial) {
@@ -54,6 +41,7 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
   const [creating, setCreating] = useState(false);
 
   const [pinnedIds, setPinnedIds] = usePersistedState(`pinned_${currentUser.id}`, []);
+  const [archivedIds, setArchivedIds] = usePersistedState(`archived_${currentUser.id}`, []);
   const [folders, setFolders] = usePersistedState(`folders_${currentUser.id}`, []);
   const [activeFolder, setActiveFolder] = useState('all');
   const [showFolderModal, setShowFolderModal] = useState(false);
@@ -63,6 +51,11 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
 
   function togglePin(chatId) {
     setPinnedIds(prev => prev.includes(chatId) ? prev.filter(id => id !== chatId) : [...prev, chatId]);
+    setChatMenuId(null);
+  }
+
+  function toggleArchive(chatId) {
+    setArchivedIds(prev => prev.includes(chatId) ? prev.filter(id => id !== chatId) : [...prev, chatId]);
     setChatMenuId(null);
   }
 
@@ -122,9 +115,14 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
   }
 
   let visibleChats = chats.filter(c => (c.displayName || '').toLowerCase().includes(search.toLowerCase()));
-  if (activeFolder !== 'all') {
-    const folder = folders.find(f => f.id === activeFolder);
-    if (folder) visibleChats = visibleChats.filter(c => folder.chatIds.includes(c.id));
+  if (activeFolder === 'archive') {
+    visibleChats = visibleChats.filter(c => archivedIds.includes(c.id));
+  } else {
+    visibleChats = visibleChats.filter(c => !archivedIds.includes(c.id));
+    if (activeFolder !== 'all') {
+      const folder = folders.find(f => f.id === activeFolder);
+      if (folder) visibleChats = visibleChats.filter(c => folder.chatIds.includes(c.id));
+    }
   }
   const filteredChats = [...visibleChats].sort((a, b) => {
     const aPinned = pinnedIds.includes(a.id), bPinned = pinnedIds.includes(b.id);
@@ -166,6 +164,11 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
       {tab === 'chats' && (
         <div className="folder-tabs">
           <button className={`folder-tab ${activeFolder === 'all' ? 'active' : ''}`} onClick={() => setActiveFolder('all')}>Все</button>
+          {archivedIds.length > 0 && (
+            <button className={`folder-tab ${activeFolder === 'archive' ? 'active' : ''}`} onClick={() => setActiveFolder('archive')}>
+              📥 Архив
+            </button>
+          )}
           {folders.map(f => (
             <button key={f.id} className={`folder-tab ${activeFolder === f.id ? 'active' : ''}`} onClick={() => setActiveFolder(f.id)} onDoubleClick={() => deleteFolder(f.id)}>
               {f.name}
@@ -192,38 +195,24 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
             const isOnline = otherId ? onlineUsers.has(otherId) : false;
             const otherStatus = otherId ? (userStatuses.get(otherId) || 'online') : 'online';
             const otherProfile = otherId ? userProfiles.get(otherId) : null;
-            const isPinned = pinnedIds.includes(chat.id);
 
             return (
-              <div key={chat.id} className={`chat-item ${selectedChat?.id === chat.id ? 'active' : ''}`} onClick={() => onSelectChat(chat)}>
-                <div className={`avatar ${chat.type === 'group' ? 'group' : ''}`}>
-                  {(chat.otherUserAvatar || otherProfile?.avatar) && chat.type === 'private'
-                    ? <img src={chat.otherUserAvatar || otherProfile.avatar} alt={chat.displayName} />
-                    : getInitials(chat.displayName)}
-                  {chat.type === 'private' && <StatusDot status={otherStatus} online={isOnline} />}
-                </div>
-                <div className="chat-info">
-                  <div className="chat-name">{isPinned && '📌 '}{chat.displayName}</div>
-                  <div className="chat-preview">
-                    {chat.lastMessage?.senderId === currentUser.id && chat.lastMessage ? 'Вы: ' : ''}
-                    {previewText(chat.lastMessage)}
-                  </div>
-                </div>
-                <div className="chat-meta">
-                  <span className="chat-time">{formatTime(chat.lastMessage?.createdAt || chat.createdAt)}</span>
-                  {chat.unread > 0 && <span className="unread-badge">{chat.unread}</span>}
-                </div>
-                <div className="chat-item-menu-wrap">
-                  <button className="chat-item-menu-btn" onClick={e => { e.stopPropagation(); setChatMenuId(p => p === chat.id ? null : chat.id); }}>⋯</button>
-                  {chatMenuId === chat.id && (
-                    <div className="msg-context-menu chat-item-menu" onClick={e => e.stopPropagation()}>
-                      <button className="msg-context-item" onClick={() => togglePin(chat.id)}>
-                        {isPinned ? '📌 Открепить' : '📌 Закрепить'}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </div>
+              <ChatItem
+                key={chat.id}
+                chat={chat}
+                currentUser={currentUser}
+                isActive={selectedChat?.id === chat.id}
+                isOnline={isOnline}
+                otherStatus={otherStatus}
+                otherAvatar={chat.otherUserAvatar || otherProfile?.avatar}
+                isPinned={pinnedIds.includes(chat.id)}
+                isArchived={archivedIds.includes(chat.id)}
+                onSelect={onSelectChat}
+                onArchive={toggleArchive}
+                onTogglePin={togglePin}
+                menuOpen={chatMenuId === chat.id}
+                onToggleMenu={id => setChatMenuId(p => p === id ? null : id)}
+              />
             );
           })}
         </div>
@@ -239,7 +228,7 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
           )}
           {users.map(u => (
             <div key={u.id} className="user-item" onClick={() => openPrivateChat(u.id)}>
-              <div className="avatar sm">
+              <div className="avatar sm" style={!u.avatar ? { background: getAvatarColor(u.username) } : undefined}>
                 {u.avatar ? <img src={u.avatar} alt={u.username} /> : getInitials(u.username)}
                 <StatusDot status={userStatuses.get(u.id) || 'online'} online={onlineUsers.has(u.id)} />
               </div>
@@ -254,7 +243,7 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
 
       {tab !== 'profile' && (
         <div className="sidebar-footer" onClick={() => setTab('profile')}>
-          <div className="avatar sm">
+          <div className="avatar sm" style={!currentUser.avatar ? { background: getAvatarColor(currentUser.username) } : undefined}>
             {currentUser.avatar ? <img src={currentUser.avatar} alt={currentUser.username} /> : getInitials(currentUser.username)}
             <StatusDot status={myStatus} online={true} />
           </div>
