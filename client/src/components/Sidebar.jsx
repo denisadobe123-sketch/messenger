@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { API_URL } from '../api.js';
+import ProfilePage from './ProfilePage.jsx';
 
 const STATUS_LABELS = { online: 'В сети', away: 'Отошёл', dnd: 'Не беспокоить', offline: 'Не в сети' };
 
@@ -35,7 +36,7 @@ function Avatar({ name, avatar, status, online, size = '' }) {
   );
 }
 
-export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses, userProfiles, selectedChat, onSelectChat, onNewChat, token, onOpenProfile }) {
+export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses, userProfiles, selectedChat, onSelectChat, onNewChat, token, onProfileUpdate, onLogout }) {
   const [tab, setTab] = useState('chats');
   const [search, setSearch] = useState('');
   const [users, setUsers] = useState([]);
@@ -93,21 +94,26 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
         </button>
       </div>
 
-      <div className="search-bar">
-        <div className="search-wrap">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-          </svg>
-          <input className="search-input" placeholder={tab === 'chats' ? 'Поиск чатов...' : 'Поиск пользователей...'} value={search} onChange={e => setSearch(e.target.value)} />
+      {tab !== 'profile' && (
+        <div className="search-bar">
+          <div className="search-wrap">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+            </svg>
+            <input className="search-input" placeholder={tab === 'chats' ? 'Поиск чатов...' : 'Поиск пользователей...'} value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="sidebar-tabs">
         <button className={`sidebar-tab ${tab === 'chats' ? 'active' : ''}`} onClick={() => { setTab('chats'); setSearch(''); }}>Чаты</button>
-        <button className={`sidebar-tab ${tab === 'users' ? 'active' : ''}`} onClick={() => { setTab('users'); setSearch(''); }}>Пользователи</button>
+        <button className={`sidebar-tab ${tab === 'users' ? 'active' : ''}`} onClick={() => { setTab('users'); setSearch(''); }}>Люди</button>
+        <button className={`sidebar-tab ${tab === 'profile' ? 'active' : ''}`} onClick={() => { setTab('profile'); setSearch(''); }}>Профиль</button>
       </div>
 
-      {tab === 'chats' ? (
+      {tab === 'profile' ? (
+        <ProfilePage user={currentUser} token={token} onUpdate={onProfileUpdate} onLogout={onLogout} />
+      ) : tab === 'chats' ? (
         <div className="chat-list">
           {filteredChats.length === 0 && (
             <div className="empty-state">
@@ -171,20 +177,22 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
         </div>
       )}
 
-      <div className="sidebar-footer" onClick={onOpenProfile}>
-        <div className="avatar sm">
-          {currentUser.avatar ? <img src={currentUser.avatar} alt={currentUser.username} /> : getInitials(currentUser.username)}
-          <StatusDot status={myStatus} online={true} />
+      {tab !== 'profile' && (
+        <div className="sidebar-footer" onClick={() => setTab('profile')}>
+          <div className="avatar sm">
+            {currentUser.avatar ? <img src={currentUser.avatar} alt={currentUser.username} /> : getInitials(currentUser.username)}
+            <StatusDot status={myStatus} online={true} />
+          </div>
+          <div className="user-info">
+            <div className="name">{currentUser.username}</div>
+            <div className={`status-text ${myStatus}`}>{STATUS_LABELS[myStatus]}</div>
+          </div>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--text-muted)' }}>
+            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+          </svg>
         </div>
-        <div className="user-info">
-          <div className="name">{currentUser.username}</div>
-          <div className={`status-text ${myStatus}`}>{STATUS_LABELS[myStatus]}</div>
-        </div>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--text-muted)' }}>
-          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-        </svg>
-      </div>
+      )}
 
       {showGroup && (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowGroup(false)}>

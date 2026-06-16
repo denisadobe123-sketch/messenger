@@ -4,7 +4,7 @@ import { getTheme, toggleTheme } from '../theme.js';
 
 const STATUS_LABELS = { online: '🟢 В сети', away: '🟡 Отошёл', dnd: '🔴 Не беспокоить' };
 
-export default function ProfileModal({ user, token, onUpdate, onClose }) {
+export default function ProfilePage({ user, token, onUpdate, onLogout }) {
   const [bio, setBio] = useState(user.bio || '');
   const [status, setStatus] = useState(user.status || 'online');
   const [currentPassword, setCurrentPassword] = useState('');
@@ -17,7 +17,6 @@ export default function ProfileModal({ user, token, onUpdate, onClose }) {
   const fileRef = useRef();
 
   function handleToggleTheme() { setTheme(toggleTheme()); }
-
   function clear() { setMsg(''); setErr(''); }
 
   async function saveProfile() {
@@ -76,25 +75,17 @@ export default function ProfileModal({ user, token, onUpdate, onClose }) {
   }
 
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal">
-        <h3>Мой профиль</h3>
-
-        <div className="profile-avatar-wrap">
-          <div className="avatar lg" onClick={() => fileRef.current?.click()} style={{ cursor: 'pointer' }}>
-            {avatarUrl ? <img src={avatarUrl} alt="avatar" /> : user.username[0].toUpperCase()}
-          </div>
-          <button className="avatar-upload-btn" onClick={() => fileRef.current?.click()}>
-            Сменить фото
-          </button>
-          <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={uploadAvatar} />
+    <div className="profile-page">
+      <div className="profile-page-header">
+        <div className="avatar lg" onClick={() => fileRef.current?.click()} style={{ cursor: 'pointer' }}>
+          {avatarUrl ? <img src={avatarUrl} alt="avatar" /> : user.username[0].toUpperCase()}
         </div>
+        <button className="avatar-upload-btn" onClick={() => fileRef.current?.click()}>Сменить фото</button>
+        <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={uploadAvatar} />
+        <div className="profile-page-username">{user.username}</div>
+      </div>
 
-        <div className="profile-section">
-          <label>Имя пользователя</label>
-          <input className="modal-input" value={user.username} disabled style={{ opacity: 0.6 }} />
-        </div>
-
+      <div className="profile-page-body">
         <div className="profile-section">
           <label>О себе</label>
           <textarea className="modal-input" rows={3} placeholder="Расскажи о себе..." value={bio} onChange={e => setBio(e.target.value)} />
@@ -103,9 +94,7 @@ export default function ProfileModal({ user, token, onUpdate, onClose }) {
         <div className="profile-section">
           <label>Статус</label>
           <select className="status-select" value={status} onChange={e => setStatus(e.target.value)}>
-            {Object.entries(STATUS_LABELS).map(([val, label]) => (
-              <option key={val} value={val}>{label}</option>
-            ))}
+            {Object.entries(STATUS_LABELS).map(([val, label]) => <option key={val} value={val}>{label}</option>)}
           </select>
         </div>
 
@@ -119,13 +108,13 @@ export default function ProfileModal({ user, token, onUpdate, onClose }) {
         {msg && <div className="success-msg">{msg}</div>}
         {err && <div className="error-msg">{err}</div>}
 
-        <div className="modal-actions" style={{ marginBottom: 20 }}>
-          <button className="btn btn-secondary" onClick={onClose}>Закрыть</button>
-          <button className="btn btn-primary" onClick={saveProfile} disabled={loading}>Сохранить</button>
-        </div>
+        <button className="btn btn-primary" style={{ width: '100%', marginBottom: 24 }} onClick={saveProfile} disabled={loading}>
+          Сохранить изменения
+        </button>
 
-        <h3 style={{ fontSize: 15, marginBottom: 14 }}>Сменить пароль</h3>
+        <div className="profile-divider" />
 
+        <h3 style={{ fontSize: 15, margin: '20px 0 14px' }}>Сменить пароль</h3>
         <div className="profile-section">
           <label>Текущий пароль</label>
           <input className="modal-input" type="password" placeholder="••••••" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} />
@@ -134,9 +123,14 @@ export default function ProfileModal({ user, token, onUpdate, onClose }) {
           <label>Новый пароль</label>
           <input className="modal-input" type="password" placeholder="••••••" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
         </div>
-
-        <button className="btn btn-primary" style={{ width: '100%' }} onClick={changePassword} disabled={loading}>
+        <button className="btn btn-primary" style={{ width: '100%', marginBottom: 24 }} onClick={changePassword} disabled={loading}>
           Изменить пароль
+        </button>
+
+        <div className="profile-divider" />
+
+        <button className="btn btn-danger" style={{ width: '100%', marginTop: 20 }} onClick={onLogout}>
+          Выйти из аккаунта
         </button>
       </div>
     </div>

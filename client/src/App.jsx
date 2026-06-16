@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import Auth from './components/Auth.jsx';
 import Sidebar from './components/Sidebar.jsx';
 import ChatWindow from './components/ChatWindow.jsx';
-import ProfileModal from './components/ProfileModal.jsx';
 import CallModal from './components/CallModal.jsx';
 import { connectSocket, disconnectSocket, getSocket } from './socket.js';
 import { API_URL } from './api.js';
@@ -45,7 +44,6 @@ export default function App() {
   const [onlineUsers, setOnlineUsers] = useState(new Set());
   const [userStatuses, setUserStatuses] = useState(new Map());
   const [userProfiles, setUserProfiles] = useState(new Map());
-  const [showProfile, setShowProfile] = useState(false);
   const [activeCall, setActiveCall] = useState(null);
   const selectedChatRef = useRef(null);
 
@@ -177,7 +175,8 @@ export default function App() {
         onSelectChat={handleSelectChat}
         onNewChat={handleNewChat}
         token={token}
-        onOpenProfile={() => setShowProfile(true)}
+        onProfileUpdate={handleProfileUpdate}
+        onLogout={handleLogout}
       />
       <ChatWindow
         chat={selectedChat}
@@ -188,14 +187,6 @@ export default function App() {
         onStartCall={handleStartCall}
         onBack={() => setSelectedChat(null)}
       />
-      {showProfile && (
-        <ProfileModal
-          user={user}
-          token={token}
-          onUpdate={handleProfileUpdate}
-          onClose={() => setShowProfile(false)}
-        />
-      )}
       {activeCall && (
         <CallModal
           call={activeCall}

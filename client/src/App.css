@@ -670,3 +670,52 @@ body {
 @supports (-webkit-touch-callout: none) {
   .chat-input-area { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
 }
+
+/* ── Profile page (tab) ──────────────────────────── */
+.profile-page { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+
+.profile-page-header {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  padding: 32px 20px 24px; background: linear-gradient(180deg, var(--bg-tertiary), var(--bg-secondary));
+  border-bottom: 1px solid var(--border);
+}
+.profile-page-header .avatar.lg {
+  width: 88px; height: 88px; font-size: 32px;
+  box-shadow: 0 6px 20px rgba(43,127,220,0.35);
+}
+.profile-page-username { font-size: 17px; font-weight: 700; margin-top: 2px; }
+
+.profile-page-body { padding: 20px; flex: 1; }
+.profile-divider { height: 1px; background: var(--border); margin: 4px 0 0; }
+
+/* ── Modern accents ──────────────────────────────── */
+.avatar {
+  background: linear-gradient(135deg, var(--accent), #5aa9ec);
+  box-shadow: 0 2px 8px rgba(43,127,220,0.25);
+}
+.avatar.group { background: linear-gradient(135deg, #6c63d5, #9b8ff0); }
+
+.send-btn {
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  box-shadow: 0 3px 10px rgba(43,127,220,0.4);
+}
+.send-btn:hover { box-shadow: 0 4px 14px rgba(43,127,220,0.55); }
+
+.auth-btn { background: linear-gradient(135deg, var(--accent), var(--accent-hover)); }
+
+.sidebar-tab.active, .chat-item.active {
+  background: linear-gradient(135deg, var(--bg-active), rgba(43,127,220,0.18));
+}
+
+.msg-out {
+  background: linear-gradient(135deg, var(--msg-out), rgba(43,127,220,0.22));
+}
+
+.unread-badge { background: linear-gradient(135deg, var(--accent), var(--accent-hover)); }
+
+.chat-item, .user-item, .sidebar-tab, .icon-btn, .btn, .auth-btn { will-change: transform; }
+.chat-item:hover { transform: translateX(1px); }
+
+.sidebar, .chat-window { backdrop-filter: blur(0px); }
+
+::selection { background: rgba(43,127,220,0.35); }
