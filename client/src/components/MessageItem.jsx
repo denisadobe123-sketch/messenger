@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import VoicePlayer from './VoicePlayer.jsx';
 
 const EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
 
@@ -18,19 +19,52 @@ function fileIcon(mime) {
   return '📎';
 }
 
-export default function MessageItem({ msg, isOwn, showSender, isRead, currentUserId, onReact }) {
+export default function MessageItem({
+  msg, isOwn, showSender, isRead, currentUserId, isPinned, highlighted,
+  onReact, onReply, onEdit, onDelete, onPin, onUnpin, onScrollToReply
+}) {
   const [showPicker, setShowPicker] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
+  const menuRef = useRef(null);
   const time = new Date(msg.createdAt).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
   const isImage = msg.file?.mimetype?.startsWith('image/');
 
-  function handleReact(emoji) {
-    onReact?.(msg.id, emoji);
-    setShowPicker(false);
+  useEffect(() => {
+    if (!showMenu) return;
+    function onClickOutside(e) {
+      if (menuRef.current && !menuRef.current.contains(e.target)) setShowMenu(false);
+    }
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [showMenu]);
+
+  function handleReact(emoji) { onReact?.(msg.id, emoji); setShowPicker(false); }
+
+  if (msg.deleted) {
+    return (
+      <div className={`msg-bubble ${isOwn ? 'msg-out' : 'msg-in'}`}>
+        {!isOwn && showSender && <div className="msg-sender">{msg.senderName}</div>}
+        <div className="msg-deleted">🚫 Сообщение удалено</div>
+        <div className="msg-footer"><span className="msg-time">{time}</span></div>
+      </div>
+    );
   }
 
   return (
-    <div className={`msg-bubble ${isOwn ? 'msg-out' : 'msg-in'}`}>
+    <div className={`msg-bubble ${isOwn ? 'msg-out' : 'msg-in'} ${highlighted ? 'search-highlight' : ''}`} id={`msg-${msg.id}`}>
       {!isOwn && showSender && <div className="msg-sender">{msg.senderName}</div>}
+
+      {msg.replyTo && (
+        <div className="reply-quote" onClick={() => onScrollToReply?.(msg.replyTo.id)}>
+          <div className="reply-quote-bar" />
+          <div className="reply-quote-content">
+            <div className="reply-quote-sender">{msg.replyTo.senderName}</div>
+            <div className="reply-quote-text">{msg.replyTo.text}</div>
+          </div>
+        </div>
+      )}
+
+      {msg.voice && <VoicePlayer url={msg.voice.url} duration={msg.voice.duration} />}
 
       {msg.file && (
         isImage ? (
@@ -53,12 +87,7 @@ export default function MessageItem({ msg, isOwn, showSender, isRead, currentUse
       {msg.reactions?.length > 0 && (
         <div className="msg-reactions">
           {msg.reactions.map(r => (
-            <button
-              key={r.emoji}
-              className={`reaction-chip ${r.userIds.includes(currentUserId) ? 'mine' : ''}`}
-              onClick={() => handleReact(r.emoji)}
-              title={`${r.userIds.length}`}
-            >
+            <button key={r.emoji} className={`reaction-chip ${r.userIds.includes(currentUserId) ? 'mine' : ''}`} onClick={() => handleReact(r.emoji)}>
               {r.emoji} <span className="reaction-count">{r.userIds.length}</span>
             </button>
           ))}
@@ -66,16 +95,34 @@ export default function MessageItem({ msg, isOwn, showSender, isRead, currentUse
       )}
 
       <div className="msg-footer">
+        <div className="msg-menu-wrap" ref={menuRef}>
+          <button className="msg-menu-btn" onClick={() => setShowMenu(p => !p)}>⋯</button>
+          {showMenu && (
+            <div className="msg-context-menu">
+              <button className="msg-context-item" onClick={() => { onReply?.(msg); setShowMenu(false); }}>↩️ Ответить</button>
+              {isPinned
+                ? <button className="msg-context-item" onClick={() => { onUnpin?.(); setShowMenu(false); }}>📌 Открепить</button>
+                : <button className="msg-context-item" onClick={() => { onPin?.(msg.id); setShowMenu(false); }}>📌 Закрепить</button>}
+              {isOwn && msg.text && (
+                <button className="msg-context-item" onClick={() => { onEdit?.(msg); setShowMenu(false); }}>✏️ Изменить</button>
+              )}
+              {isOwn && (
+                <button className="msg-context-item danger" onClick={() => { onDelete?.(msg.id); setShowMenu(false); }}>🗑 Удалить</button>
+              )}
+            </div>
+          )}
+        </div>
+
         <div className="reaction-picker-wrap">
           <button className="reaction-btn" onClick={() => setShowPicker(p => !p)}>😊</button>
           {showPicker && (
             <div className="reaction-picker">
-              {EMOJIS.map(e => (
-                <button key={e} className="reaction-option" onClick={() => handleReact(e)}>{e}</button>
-              ))}
+              {EMOJIS.map(e => <button key={e} className="reaction-option" onClick={() => handleReact(e)}>{e}</button>)}
             </div>
           )}
         </div>
+
+        {msg.edited && <span className="msg-edited-label">изменено</span>}
         <span className="msg-time">{time}</span>
         {isOwn && <span className={`msg-read ${isRead ? 'seen' : ''}`}>{isRead ? '✓✓' : '✓'}</span>}
       </div>

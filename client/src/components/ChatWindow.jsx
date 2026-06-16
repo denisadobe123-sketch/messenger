@@ -16,12 +16,28 @@ function groupByDay(messages) {
   return groups;
 }
 
-export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuses, token }) {
+export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuses, token, onStartCall }) {
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const [fileToSend, setFileToSend] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [typingUsers, setTypingUsers] = useState(new Map());
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [editingMsg, setEditingMsg] = useState(null);
+  const [pinnedMessageId, setPinnedMessageId] = useState(null);
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchIndex, setSearchIndex] = useState(0);
+  const [highlightedId, setHighlightedId] = useState(null);
+
+  const [recording, setRecording] = useState(false);
+  const [recordTime, setRecordTime] = useState(0);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const recordIntervalRef = useRef(null);
+  const recordStreamRef = useRef(null);
+
   const bottomRef = useRef(null);
   const fileRef = useRef(null);
   const typingTimeout = useRef(null);
@@ -30,6 +46,8 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   useEffect(() => {
     if (!chat) return;
     setMessages([]); setText(''); setFileToSend(null); setTypingUsers(new Map());
+    setReplyingTo(null); setEditingMsg(null); setShowSearch(false); setSearchQuery(''); setSearchResults([]);
+    setPinnedMessageId(chat.pinnedMessageId || null);
 
     fetch(`${API_URL}/messages/${chat.id}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
@@ -48,16 +66,22 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
       socket.emit('read_messages', { chatId: chat.id });
       setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
     }
-
     function onReaction({ messageId, reactions }) {
       setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m));
     }
-
+    function onEdited({ messageId, text, edited }) {
+      setMessages(prev => prev.map(m => m.id === messageId ? { ...m, text, edited } : m));
+    }
+    function onDeleted({ messageId }) {
+      setMessages(prev => prev.map(m => m.id === messageId ? { ...m, deleted: true, text: null, file: null, voice: null } : m));
+    }
+    function onPinned({ chatId, pinnedMessageId }) {
+      if (chatId === chat?.id) setPinnedMessageId(pinnedMessageId);
+    }
     function onTyping({ userId, username, chatId }) {
       if (chatId !== chat?.id || userId === currentUser.id) return;
       setTypingUsers(prev => new Map(prev).set(userId, username));
     }
-
     function onStopTyping({ userId, chatId }) {
       if (chatId !== chat?.id) return;
       setTypingUsers(prev => { const n = new Map(prev); n.delete(userId); return n; });
@@ -65,11 +89,17 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
 
     socket.on('new_message', onMessage);
     socket.on('reaction_updated', onReaction);
+    socket.on('message_edited', onEdited);
+    socket.on('message_deleted', onDeleted);
+    socket.on('chat_pinned', onPinned);
     socket.on('typing', onTyping);
     socket.on('stop_typing', onStopTyping);
     return () => {
       socket.off('new_message', onMessage);
       socket.off('reaction_updated', onReaction);
+      socket.off('message_edited', onEdited);
+      socket.off('message_deleted', onDeleted);
+      socket.off('chat_pinned', onPinned);
       socket.off('typing', onTyping);
       socket.off('stop_typing', onStopTyping);
     };
@@ -84,6 +114,13 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   }
 
   async function send() {
+    if (editingMsg) {
+      if (!text.trim()) return;
+      socket.emit('edit_message', { messageId: editingMsg.id, text: text.trim() });
+      setEditingMsg(null); setText('');
+      return;
+    }
+
     if (!text.trim() && !fileToSend) return;
     if (!socket || !chat) return;
 
@@ -99,26 +136,102 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
       setUploading(false);
     }
 
-    socket.emit('send_message', { chatId: chat.id, text: text.trim() || null, file: fileData });
-    setText(''); setFileToSend(null);
+    socket.emit('send_message', { chatId: chat.id, text: text.trim() || null, file: fileData, replyTo: replyingTo?.id || null });
+    setText(''); setFileToSend(null); setReplyingTo(null);
     socket.emit('stop_typing', { chatId: chat.id });
   }
 
   function onKeyDown(e) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+    if (e.key === 'Escape') { setReplyingTo(null); setEditingMsg(null); setText(''); }
   }
 
-  function handleReact(messageId, emoji) {
-    if (!socket) return;
-    socket.emit('add_reaction', { messageId, emoji });
+  function handleReact(messageId, emoji) { socket?.emit('add_reaction', { messageId, emoji }); }
+  function handleReply(msg) { setEditingMsg(null); setReplyingTo(msg); }
+  function handleEdit(msg) { setReplyingTo(null); setEditingMsg(msg); setText(msg.text || ''); }
+  function handleDelete(messageId) { if (confirm('Удалить сообщение?')) socket?.emit('delete_message', { messageId }); }
+  function handlePin(messageId) { socket?.emit('pin_message', { chatId: chat.id, messageId }); }
+  function handleUnpin() { socket?.emit('unpin_message', { chatId: chat.id }); }
+
+  function scrollToMessage(messageId) {
+    const el = document.getElementById(`msg-${messageId}`);
+    if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); setHighlightedId(messageId); setTimeout(() => setHighlightedId(null), 1500); }
+  }
+
+  // ── Search ──────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!showSearch || !searchQuery.trim()) { setSearchResults([]); return; }
+    const t = setTimeout(() => {
+      fetch(`${API_URL}/messages/${chat.id}/search?q=${encodeURIComponent(searchQuery)}`, { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => r.json()).then(results => { setSearchResults(results); setSearchIndex(0); if (results.length) scrollToMessage(results[results.length - 1].id); });
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchQuery, showSearch]);
+
+  function navigateSearch(dir) {
+    if (!searchResults.length) return;
+    let idx = searchIndex + dir;
+    if (idx < 0) idx = searchResults.length - 1;
+    if (idx >= searchResults.length) idx = 0;
+    setSearchIndex(idx);
+    scrollToMessage(searchResults[searchResults.length - 1 - idx].id);
+  }
+
+  // ── Voice recording ─────────────────────────────────────────────────────
+  async function startRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recordStreamRef.current = stream;
+      const recorder = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      recorder.ondataavailable = e => audioChunksRef.current.push(e.data);
+      recorder.start();
+      mediaRecorderRef.current = recorder;
+      setRecording(true); setRecordTime(0);
+      recordIntervalRef.current = setInterval(() => setRecordTime(t => t + 1), 1000);
+    } catch {
+      alert('Нет доступа к микрофону');
+    }
+  }
+
+  function cancelRecording() {
+    mediaRecorderRef.current?.stop();
+    recordStreamRef.current?.getTracks().forEach(t => t.stop());
+    clearInterval(recordIntervalRef.current);
+    setRecording(false); setRecordTime(0);
+    audioChunksRef.current = [];
+  }
+
+  async function sendRecording() {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder) return;
+    const duration = recordTime;
+
+    recorder.onstop = async () => {
+      recordStreamRef.current?.getTracks().forEach(t => t.stop());
+      clearInterval(recordIntervalRef.current);
+      setRecording(false); setRecordTime(0);
+
+      const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+      const form = new FormData();
+      form.append('file', blob, `voice_${Date.now()}.webm`);
+
+      setUploading(true);
+      try {
+        const res = await fetch(`${API_URL}/upload`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
+        const data = await res.json();
+        socket.emit('send_message', { chatId: chat.id, voice: { url: data.url, duration }, replyTo: replyingTo?.id || null });
+        setReplyingTo(null);
+      } catch {}
+      setUploading(false);
+    };
+    recorder.stop();
   }
 
   const otherId = chat?.type === 'private' ? chat.members?.find(id => id !== currentUser.id) : null;
   const isOnline = otherId ? onlineUsers.has(otherId) : false;
   const otherStatus = otherId ? (userStatuses?.get(otherId) || (isOnline ? 'online' : 'offline')) : 'online';
-  const statusLabel = chat?.type === 'group'
-    ? `${chat.members?.length || 0} участников`
-    : STATUS_LABELS[isOnline ? otherStatus : 'offline'];
+  const statusLabel = chat?.type === 'group' ? `${chat.members?.length || 0} участников` : STATUS_LABELS[isOnline ? otherStatus : 'offline'];
 
   if (!chat) {
     return (
@@ -134,6 +247,8 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
 
   const items = groupByDay(messages);
   const typingList = [...typingUsers.values()];
+  const pinnedMsg = pinnedMessageId ? messages.find(m => m.id === pinnedMessageId) : null;
+  const recMins = Math.floor(recordTime / 60), recSecs = recordTime % 60;
 
   return (
     <div className="chat-window">
@@ -146,7 +261,51 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
           <div className="chat-header-name">{chat.displayName || chat.name}</div>
           <div className={`chat-header-status ${isOnline ? otherStatus : ''}`}>{statusLabel}</div>
         </div>
+        {chat.type === 'private' && (
+          <>
+            <button className="icon-btn" title="Аудиозвонок" onClick={() => onStartCall?.(otherId, 'audio')}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.362 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/>
+              </svg>
+            </button>
+            <button className="icon-btn" title="Видеозвонок" onClick={() => onStartCall?.(otherId, 'video')}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+              </svg>
+            </button>
+          </>
+        )}
+        <button className="icon-btn" title="Поиск" onClick={() => setShowSearch(s => !s)}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+          </svg>
+        </button>
       </div>
+
+      {showSearch && (
+        <div className="chat-search-bar">
+          <input autoFocus placeholder="Поиск по сообщениям..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+          {searchResults.length > 0 && (
+            <>
+              <span className="search-result-count">{searchIndex + 1} / {searchResults.length}</span>
+              <button className="search-nav-btn" onClick={() => navigateSearch(-1)}>↑</button>
+              <button className="search-nav-btn" onClick={() => navigateSearch(1)}>↓</button>
+            </>
+          )}
+          <button className="search-close-btn" onClick={() => { setShowSearch(false); setSearchQuery(''); }}>✕</button>
+        </div>
+      )}
+
+      {pinnedMsg && !pinnedMsg.deleted && (
+        <div className="pinned-banner" onClick={() => scrollToMessage(pinnedMsg.id)}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>
+          <div className="pinned-banner-text">
+            <div className="pinned-banner-label">Закреплено</div>
+            <div className="pinned-banner-content">{pinnedMsg.text || (pinnedMsg.voice ? '🎤 Голосовое' : '📎 Файл')}</div>
+          </div>
+          <button className="pinned-unpin-btn" onClick={e => { e.stopPropagation(); handleUnpin(); }}>✕</button>
+        </div>
+      )}
 
       <div className="messages-wrap">
         {items.map((item, i) =>
@@ -160,18 +319,42 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
                 showSender={chat.type === 'group'}
                 isRead={item.msg.readBy?.length > 1}
                 currentUserId={currentUser.id}
+                isPinned={item.msg.id === pinnedMessageId}
+                highlighted={item.msg.id === highlightedId}
                 onReact={handleReact}
+                onReply={handleReply}
+                onEdit={handleEdit}
+                onDelete={handleDelete}
+                onPin={handlePin}
+                onUnpin={handleUnpin}
+                onScrollToReply={scrollToMessage}
               />
             )
         )}
-
         {typingList.length > 0 && (
-          <div className="typing-indicator">
-            <div className="typing-dot" /><div className="typing-dot" /><div className="typing-dot" />
-          </div>
+          <div className="typing-indicator"><div className="typing-dot" /><div className="typing-dot" /><div className="typing-dot" /></div>
         )}
         <div ref={bottomRef} />
       </div>
+
+      {replyingTo && (
+        <div className="reply-preview">
+          <div className="reply-preview-bar" />
+          <div className="reply-preview-content">
+            <div className="reply-preview-label">Ответ {replyingTo.senderName}</div>
+            <div className="reply-preview-text">{replyingTo.text || (replyingTo.voice ? '🎤 Голосовое' : '📎 Файл')}</div>
+          </div>
+          <button className="reply-preview-cancel" onClick={() => setReplyingTo(null)}>✕</button>
+        </div>
+      )}
+
+      {editingMsg && (
+        <div className="edit-banner">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+          <span className="edit-banner-label">Редактирование сообщения</span>
+          <button className="reply-preview-cancel" onClick={() => { setEditingMsg(null); setText(''); }}>✕</button>
+        </div>
+      )}
 
       {fileToSend && (
         <div className="file-preview">
@@ -181,24 +364,41 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
         </div>
       )}
 
-      <div className="chat-input-area">
-        <input type="file" ref={fileRef} style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) setFileToSend(f); e.target.value = ''; }} />
-        <button className="attach-btn" onClick={() => fileRef.current?.click()}>
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
-          </svg>
-        </button>
-        <textarea
-          className="msg-input" placeholder="Написать сообщение..." value={text}
-          onChange={handleTextChange} onKeyDown={onKeyDown} rows={1}
-          onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'; }}
-        />
-        <button className="send-btn" onClick={send} disabled={(!text.trim() && !fileToSend) || uploading}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
-          </svg>
-        </button>
-      </div>
+      {recording ? (
+        <div className="recording-bar">
+          <span className="recording-dot" />
+          <span className="recording-time">{recMins}:{recSecs.toString().padStart(2, '0')}</span>
+          <button className="recording-cancel" onClick={cancelRecording}>Отмена</button>
+          <button className="recording-send" onClick={sendRecording}>Отправить</button>
+        </div>
+      ) : (
+        <div className="chat-input-area">
+          <input type="file" ref={fileRef} style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) setFileToSend(f); e.target.value = ''; }} />
+          <button className="attach-btn" onClick={() => fileRef.current?.click()}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+            </svg>
+          </button>
+          <textarea
+            className="msg-input" placeholder="Написать сообщение..." value={text}
+            onChange={handleTextChange} onKeyDown={onKeyDown} rows={1}
+            onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'; }}
+          />
+          {!text.trim() && !fileToSend ? (
+            <button className="voice-record-btn" onClick={startRecording} title="Голосовое сообщение">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/>
+              </svg>
+            </button>
+          ) : (
+            <button className="send-btn" onClick={send} disabled={uploading}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+              </svg>
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

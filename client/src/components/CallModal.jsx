@@ -1,0 +1,190 @@
+import { useEffect, useRef, useState } from 'react';
+
+const ICE_SERVERS = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+
+export default function CallModal({ call, socket, currentUserId, onEnd }) {
+  const [status, setStatus] = useState(call.status); // 'calling' | 'incoming' | 'connected'
+  const [muted, setMuted] = useState(false);
+  const [videoOff, setVideoOff] = useState(false);
+  const [duration, setDuration] = useState(0);
+
+  const localVideoRef = useRef(null);
+  const remoteVideoRef = useRef(null);
+  const pcRef = useRef(null);
+  const localStreamRef = useRef(null);
+  const durationInterval = useRef(null);
+
+  const otherUserId = call.otherUserId;
+  const isVideo = call.callType === 'video';
+
+  useEffect(() => {
+    if (call.status === 'calling') startCall();
+    if (call.status === 'incoming') prepareIncoming();
+    return () => cleanup();
+  }, []);
+
+  useEffect(() => {
+    function onSignal({ fromUserId, signal }) {
+      if (fromUserId !== otherUserId || !pcRef.current) return;
+      if (signal.type === 'offer') {
+        pcRef.current.setRemoteDescription(new RTCSessionDescription(signal)).then(async () => {
+          const answer = await pcRef.current.createAnswer();
+          await pcRef.current.setLocalDescription(answer);
+          socket.emit('call_signal', { toUserId: otherUserId, signal: answer });
+        });
+      } else if (signal.type === 'answer') {
+        pcRef.current.setRemoteDescription(new RTCSessionDescription(signal));
+      } else if (signal.candidate) {
+        pcRef.current.addIceCandidate(new RTCIceCandidate(signal)).catch(() => {});
+      }
+    }
+
+    function onAccepted() { setStatus('connected'); startTimer(); }
+    function onRejected() { cleanup(); onEnd(); }
+    function onEnded() { cleanup(); onEnd(); }
+
+    socket.on('call_signal', onSignal);
+    socket.on('call_accepted', onAccepted);
+    socket.on('call_rejected', onRejected);
+    socket.on('call_ended', onEnded);
+    return () => {
+      socket.off('call_signal', onSignal);
+      socket.off('call_accepted', onAccepted);
+      socket.off('call_rejected', onRejected);
+      socket.off('call_ended', onEnded);
+    };
+  }, []);
+
+  function startTimer() {
+    durationInterval.current = setInterval(() => setDuration(d => d + 1), 1000);
+  }
+
+  async function createPeerConnection() {
+    const pc = new RTCPeerConnection(ICE_SERVERS);
+    pc.onicecandidate = e => { if (e.candidate) socket.emit('call_signal', { toUserId: otherUserId, signal: e.candidate }); };
+    pc.ontrack = e => { if (remoteVideoRef.current) remoteVideoRef.current.srcObject = e.streams[0]; };
+    pcRef.current = pc;
+    return pc;
+  }
+
+  async function startCall() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: isVideo });
+      localStreamRef.current = stream;
+      if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+
+      const pc = await createPeerConnection();
+      stream.getTracks().forEach(t => pc.addTrack(t, stream));
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socket.emit('call_signal', { toUserId: otherUserId, signal: offer });
+      socket.emit('call_invite', { toUserId: otherUserId, callType: call.callType });
+    } catch {
+      alert('Нет доступа к камере/микрофону');
+      onEnd();
+    }
+  }
+
+  async function prepareIncoming() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: isVideo });
+      localStreamRef.current = stream;
+      if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+      await createPeerConnection();
+      stream.getTracks().forEach(t => pcRef.current.addTrack(t, stream));
+    } catch {
+      alert('Нет доступа к камере/микрофону');
+    }
+  }
+
+  function accept() {
+    socket.emit('call_accept', { toUserId: otherUserId });
+    setStatus('connected');
+    startTimer();
+  }
+
+  function reject() {
+    socket.emit('call_reject', { toUserId: otherUserId });
+    cleanup();
+    onEnd();
+  }
+
+  function endCall() {
+    socket.emit('call_end', { toUserId: otherUserId });
+    cleanup();
+    onEnd();
+  }
+
+  function cleanup() {
+    clearInterval(durationInterval.current);
+    localStreamRef.current?.getTracks().forEach(t => t.stop());
+    pcRef.current?.close();
+  }
+
+  function toggleMute() {
+    const audioTrack = localStreamRef.current?.getAudioTracks()[0];
+    if (audioTrack) { audioTrack.enabled = !audioTrack.enabled; setMuted(!audioTrack.enabled); }
+  }
+
+  function toggleVideo() {
+    const videoTrack = localStreamRef.current?.getVideoTracks()[0];
+    if (videoTrack) { videoTrack.enabled = !videoTrack.enabled; setVideoOff(!videoTrack.enabled); }
+  }
+
+  const mins = Math.floor(duration / 60), secs = duration % 60;
+
+  if (status === 'incoming') {
+    return (
+      <div className="call-overlay">
+        <div className="call-avatar-pulse">{call.otherUsername?.[0]?.toUpperCase()}</div>
+        <div className="call-username">{call.otherUsername}</div>
+        <div className="call-status-text">{isVideo ? 'Видеозвонок' : 'Аудиозвонок'}...</div>
+        <div className="call-controls">
+          <button className="call-btn reject" onClick={reject}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M21 3l-18 18M3 3l18 18" stroke="white" strokeWidth="2.5"/></svg>
+          </button>
+          <button className="call-btn accept" onClick={accept}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.362 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="call-overlay">
+      {isVideo ? (
+        <div className="call-video-grid">
+          <video ref={remoteVideoRef} className="call-video-remote" autoPlay playsInline />
+          <video ref={localVideoRef} className="call-video-local" autoPlay playsInline muted />
+        </div>
+      ) : (
+        <>
+          <div className="call-avatar-pulse">{call.otherUsername?.[0]?.toUpperCase()}</div>
+          <div className="call-username">{call.otherUsername}</div>
+        </>
+      )}
+      <div className="call-status-text">
+        {status === 'connected' ? `${mins}:${secs.toString().padStart(2, '0')}` : 'Звоним...'}
+      </div>
+      <div className="call-controls">
+        <button className={`call-btn mute ${muted ? 'active' : ''}`} onClick={toggleMute}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/>
+          </svg>
+        </button>
+        {isVideo && (
+          <button className={`call-btn video-toggle ${videoOff ? 'active' : ''}`} onClick={toggleVideo}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+            </svg>
+          </button>
+        )}
+        <button className="call-btn end" onClick={endCall}>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M21 3l-18 18M3 3l18 18" stroke="white" strokeWidth="2.5"/></svg>
+        </button>
+      </div>
+    </div>
+  );
+}

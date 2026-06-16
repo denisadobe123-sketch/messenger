@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 import { API_URL } from '../api.js';
+import { getTheme, toggleTheme } from '../theme.js';
 
 const STATUS_LABELS = { online: '🟢 В сети', away: '🟡 Отошёл', dnd: '🔴 Не беспокоить' };
 
@@ -12,7 +13,10 @@ export default function ProfileModal({ user, token, onUpdate, onClose }) {
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState(user.avatar || null);
+  const [theme, setTheme] = useState(getTheme());
   const fileRef = useRef();
+
+  function handleToggleTheme() { setTheme(toggleTheme()); }
 
   function clear() { setMsg(''); setErr(''); }
 
@@ -103,6 +107,13 @@ export default function ProfileModal({ user, token, onUpdate, onClose }) {
               <option key={val} value={val}>{label}</option>
             ))}
           </select>
+        </div>
+
+        <div className="profile-section">
+          <label>Тема оформления</label>
+          <button className="btn btn-secondary" style={{ width: '100%' }} onClick={handleToggleTheme}>
+            {theme === 'dark' ? '🌙 Тёмная — нажми для светлой' : '☀️ Светлая — нажми для тёмной'}
+          </button>
         </div>
 
         {msg && <div className="success-msg">{msg}</div>}

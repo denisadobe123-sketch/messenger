@@ -3,8 +3,10 @@ import Auth from './components/Auth.jsx';
 import Sidebar from './components/Sidebar.jsx';
 import ChatWindow from './components/ChatWindow.jsx';
 import ProfileModal from './components/ProfileModal.jsx';
+import CallModal from './components/CallModal.jsx';
 import { connectSocket, disconnectSocket, getSocket } from './socket.js';
 import { API_URL } from './api.js';
+import { getTheme, applyTheme } from './theme.js';
 
 // Звук уведомления (короткий beep через Web Audio API)
 function playNotificationSound() {
@@ -44,15 +46,26 @@ export default function App() {
   const [userStatuses, setUserStatuses] = useState(new Map());
   const [userProfiles, setUserProfiles] = useState(new Map());
   const [showProfile, setShowProfile] = useState(false);
+  const [activeCall, setActiveCall] = useState(null);
   const selectedChatRef = useRef(null);
 
   useEffect(() => { selectedChatRef.current = selectedChat; }, [selectedChat]);
+  useEffect(() => { applyTheme(getTheme()); }, []);
 
   useEffect(() => {
     if (!user || !token) return;
     requestNotificationPermission();
 
     const socket = connectSocket(token);
+
+    socket.on('call_incoming', ({ fromUserId, fromUsername, callType }) => {
+      setActiveCall({ status: 'incoming', otherUserId: fromUserId, otherUsername: fromUsername, callType });
+    });
+
+    socket.on('call_unavailable', () => {
+      alert('Пользователь не в сети');
+      setActiveCall(null);
+    });
 
     socket.on('user_status', ({ userId, online }) => {
       setOnlineUsers(prev => { const n = new Set(prev); online ? n.add(userId) : n.delete(userId); return n; });
@@ -133,6 +146,13 @@ export default function App() {
     });
   }
 
+  function handleStartCall(otherUserId, callType) {
+    const chat = chats.find(c => c.members?.includes(otherUserId));
+    const otherProfile = userProfiles.get(otherUserId);
+    const otherUsername = chat?.displayName || otherProfile?.username || 'Пользователь';
+    setActiveCall({ status: 'calling', otherUserId, otherUsername, callType });
+  }
+
   function handleProfileUpdate(updatedUser) {
     const merged = { ...user, ...updatedUser };
     setUser(merged);
@@ -165,6 +185,7 @@ export default function App() {
         onlineUsers={onlineUsers}
         userStatuses={userStatuses}
         token={token}
+        onStartCall={handleStartCall}
       />
       {showProfile && (
         <ProfileModal
@@ -172,6 +193,14 @@ export default function App() {
           token={token}
           onUpdate={handleProfileUpdate}
           onClose={() => setShowProfile(false)}
+        />
+      )}
+      {activeCall && (
+        <CallModal
+          call={activeCall}
+          socket={getSocket()}
+          currentUserId={user.id}
+          onEnd={() => setActiveCall(null)}
         />
       )}
     </div>

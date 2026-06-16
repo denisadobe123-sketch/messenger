@@ -228,6 +228,7 @@ app.post('/chats', authMiddleware, (req, res) => {
     type,
     name: name || null,
     members: allMembers,
+    pinnedMessageId: null,
     createdBy: req.user.id,
     createdAt: new Date().toISOString()
   };
@@ -258,6 +259,21 @@ app.get('/messages/:chatId', authMiddleware, (req, res) => {
   });
   if (changed) saveDB(db);
   res.json(messages);
+});
+
+app.get('/messages/:chatId/search', authMiddleware, (req, res) => {
+  const db = loadDB();
+  const chat = db.chats.find(c => c.id === req.params.chatId);
+  if (!chat || !chat.members.includes(req.user.id))
+    return res.status(403).json({ error: 'Нет доступа' });
+
+  const q = (req.query.q || '').toLowerCase().trim();
+  if (!q) return res.json([]);
+
+  const results = db.messages.filter(m =>
+    m.chatId === req.params.chatId && !m.deleted && m.text?.toLowerCase().includes(q)
+  );
+  res.json(results);
 });
 
 // ─── File Upload ──────────────────────────────────────────────────────────────
@@ -296,9 +312,21 @@ io.on('connection', (socket) => {
 
   socket.on('send_message', (data) => {
     const db = loadDB();
-    const { chatId, text, file } = data;
+    const { chatId, text, file, replyTo, voice } = data;
     const chat = db.chats.find(c => c.id === chatId);
     if (!chat || !chat.members.includes(userId)) return;
+
+    let replySnippet = null;
+    if (replyTo) {
+      const original = db.messages.find(m => m.id === replyTo);
+      if (original) {
+        replySnippet = {
+          id: original.id,
+          senderName: original.senderName,
+          text: original.deleted ? 'Сообщение удалено' : (original.text || (original.voice ? '🎤 Голосовое' : (original.file ? '📎 Файл' : '')))
+        };
+      }
+    }
 
     const message = {
       id: Date.now().toString(),
@@ -307,7 +335,11 @@ io.on('connection', (socket) => {
       senderName: socket.user.username,
       text: text || null,
       file: file || null,
+      voice: voice || null,
+      replyTo: replySnippet,
       reactions: [],
+      edited: false,
+      deleted: false,
       createdAt: new Date().toISOString(),
       readBy: [userId]
     };
@@ -315,6 +347,90 @@ io.on('connection', (socket) => {
     db.messages.push(message);
     saveDB(db);
     io.to(chatId).emit('new_message', message);
+  });
+
+  socket.on('edit_message', ({ messageId, text }) => {
+    const db = loadDB();
+    const msg = db.messages.find(m => m.id === messageId);
+    if (!msg || msg.senderId !== userId || msg.deleted) return;
+
+    msg.text = text;
+    msg.edited = true;
+    saveDB(db);
+    io.to(msg.chatId).emit('message_edited', { messageId, text, edited: true });
+  });
+
+  socket.on('delete_message', ({ messageId }) => {
+    const db = loadDB();
+    const msg = db.messages.find(m => m.id === messageId);
+    if (!msg || msg.senderId !== userId) return;
+
+    msg.deleted = true;
+    msg.text = null;
+    msg.file = null;
+    msg.voice = null;
+    saveDB(db);
+
+    const chat = db.chats.find(c => c.id === msg.chatId);
+    if (chat?.pinnedMessageId === messageId) {
+      chat.pinnedMessageId = null;
+      saveDB(db);
+      io.to(msg.chatId).emit('chat_pinned', { chatId: msg.chatId, pinnedMessageId: null });
+    }
+
+    io.to(msg.chatId).emit('message_deleted', { messageId });
+  });
+
+  socket.on('pin_message', ({ chatId, messageId }) => {
+    const db = loadDB();
+    const chat = db.chats.find(c => c.id === chatId);
+    if (!chat || !chat.members.includes(userId)) return;
+
+    chat.pinnedMessageId = messageId;
+    saveDB(db);
+    io.to(chatId).emit('chat_pinned', { chatId, pinnedMessageId: messageId });
+  });
+
+  socket.on('unpin_message', ({ chatId }) => {
+    const db = loadDB();
+    const chat = db.chats.find(c => c.id === chatId);
+    if (!chat || !chat.members.includes(userId)) return;
+
+    chat.pinnedMessageId = null;
+    saveDB(db);
+    io.to(chatId).emit('chat_pinned', { chatId, pinnedMessageId: null });
+  });
+
+  // ── WebRTC call signaling ──────────────────────────────────────────────
+  socket.on('call_invite', ({ chatId, toUserId, callType }) => {
+    const targetSid = onlineUsers.get(toUserId);
+    if (targetSid) {
+      io.to(targetSid).emit('call_incoming', {
+        chatId, fromUserId: userId, fromUsername: socket.user.username, callType
+      });
+    } else {
+      socket.emit('call_unavailable', { toUserId });
+    }
+  });
+
+  socket.on('call_signal', ({ toUserId, signal }) => {
+    const targetSid = onlineUsers.get(toUserId);
+    if (targetSid) io.to(targetSid).emit('call_signal', { fromUserId: userId, signal });
+  });
+
+  socket.on('call_accept', ({ toUserId }) => {
+    const targetSid = onlineUsers.get(toUserId);
+    if (targetSid) io.to(targetSid).emit('call_accepted', { fromUserId: userId });
+  });
+
+  socket.on('call_reject', ({ toUserId }) => {
+    const targetSid = onlineUsers.get(toUserId);
+    if (targetSid) io.to(targetSid).emit('call_rejected', { fromUserId: userId });
+  });
+
+  socket.on('call_end', ({ toUserId }) => {
+    const targetSid = onlineUsers.get(toUserId);
+    if (targetSid) io.to(targetSid).emit('call_ended', { fromUserId: userId });
   });
 
   socket.on('add_reaction', ({ messageId, emoji }) => {
