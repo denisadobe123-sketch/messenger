@@ -1,6 +1,28 @@
 import { useEffect, useRef, useState } from 'react';
 
-const ICE_SERVERS = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+const ICE_SERVERS = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    // Бесплатный публичный TURN-сервер — нужен, когда прямое соединение P2P
+    // невозможно из-за NAT/firewall (мобильные сети, корпоративный wifi и т.д.)
+    {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    }
+  ]
+};
 
 export default function CallModal({ call, socket, currentUserId, onEnd }) {
   const [status, setStatus] = useState(call.status); // 'calling' | 'incoming' | 'connected'
@@ -13,14 +35,23 @@ export default function CallModal({ call, socket, currentUserId, onEnd }) {
   const pcRef = useRef(null);
   const localStreamRef = useRef(null);
   const durationInterval = useRef(null);
+  const ringTimeoutRef = useRef(null);
 
   const otherUserId = call.otherUserId;
   const isVideo = call.callType === 'video';
 
   useEffect(() => {
-    if (call.status === 'calling') startCall();
+    if (call.status === 'calling') {
+      startCall();
+      // Если за 45 секунд никто не ответил — завершаем звонок
+      ringTimeoutRef.current = setTimeout(() => {
+        socket.emit('call_end', { toUserId: otherUserId });
+        cleanup();
+        onEnd();
+      }, 45000);
+    }
     if (call.status === 'incoming') prepareIncoming();
-    return () => cleanup();
+    return () => { cleanup(); clearTimeout(ringTimeoutRef.current); };
   }, []);
 
   useEffect(() => {
@@ -39,7 +70,7 @@ export default function CallModal({ call, socket, currentUserId, onEnd }) {
       }
     }
 
-    function onAccepted() { setStatus('connected'); startTimer(); }
+    function onAccepted() { clearTimeout(ringTimeoutRef.current); setStatus('connected'); startTimer(); }
     function onRejected() { cleanup(); onEnd(); }
     function onEnded() { cleanup(); onEnd(); }
 
@@ -63,6 +94,12 @@ export default function CallModal({ call, socket, currentUserId, onEnd }) {
     const pc = new RTCPeerConnection(ICE_SERVERS);
     pc.onicecandidate = e => { if (e.candidate) socket.emit('call_signal', { toUserId: otherUserId, signal: e.candidate }); };
     pc.ontrack = e => { if (remoteVideoRef.current) remoteVideoRef.current.srcObject = e.streams[0]; };
+    pc.oniceconnectionstatechange = () => {
+      if (['disconnected', 'failed', 'closed'].includes(pc.iceConnectionState)) {
+        cleanup();
+        onEnd();
+      }
+    };
     pcRef.current = pc;
     return pc;
   }
@@ -118,6 +155,7 @@ export default function CallModal({ call, socket, currentUserId, onEnd }) {
 
   function cleanup() {
     clearInterval(durationInterval.current);
+    clearTimeout(ringTimeoutRef.current);
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     pcRef.current?.close();
   }
