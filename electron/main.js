@@ -1,10 +1,8 @@
-const { app, BrowserWindow, Tray, Menu, nativeImage } = require('electron');
-const path = require('path');
+const { app, BrowserWindow } = require('electron');
 
 const SERVER_URL = 'https://messenger-production-fb61.up.railway.app';
 
 let mainWindow;
-let tray;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -19,31 +17,9 @@ function createWindow() {
   });
 
   mainWindow.loadURL(SERVER_URL);
-  mainWindow.show();
-
-  mainWindow.on('close', e => {
-    e.preventDefault();
-    mainWindow.hide();
-  });
+  mainWindow.once('ready-to-show', () => mainWindow.show());
 }
 
-function createTray() {
-  const icon = nativeImage.createEmpty();
-  tray = new Tray(icon);
-  tray.setToolTip('Messenger');
-  tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Открыть', click: () => mainWindow.show() },
-    { type: 'separator' },
-    { label: 'Выйти', click: () => { app.exit(0); } }
-  ]));
-  tray.on('click', () => mainWindow.show());
-}
+app.whenReady().then(createWindow);
 
-app.whenReady().then(() => {
-  createWindow();
-  createTray();
-});
-
-app.on('before-quit', () => {});
-
-app.on('window-all-closed', e => e.preventDefault());
+app.on('window-all-closed', () => app.quit());

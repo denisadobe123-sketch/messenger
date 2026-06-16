@@ -5,3 +5,10 @@ client/dist/
 server/uploads/
 server/db.json
 .env
+dist-electron/
+dist-electron2/
+Messenger-App/
+Messenger-App-clean/
+Messenger-App.zip
+client/android/app/build/
+client/android/.gradle/

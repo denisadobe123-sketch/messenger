@@ -1,0 +1,62 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install client deps
+        working-directory: client
+        run: npm install
+
+      - name: Build web app
+        working-directory: client
+        run: npm run build
+
+      - name: Sync Capacitor
+        working-directory: client
+        run: npx cap sync android
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Grant execute permission for gradlew
+        working-directory: client/android
+        run: chmod +x gradlew
+
+      - name: Build debug APK
+        working-directory: client/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Rename APK
+        run: cp client/android/app/build/outputs/apk/debug/app-debug.apk Messenger.apk
+
+      - name: Upload APK as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Messenger-APK
+          path: Messenger.apk
+
+      - name: Create/Update release with APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-build
+          name: Messenger Android App
+          body: Автоматически собранный APK. Скачай и установи на Android.
+          files: Messenger.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

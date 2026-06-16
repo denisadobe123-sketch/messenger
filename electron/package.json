@@ -6,7 +6,7 @@
     "start": "electron .",
     "build": "electron-builder --win --x64"
   },
-  "dependencies": {
+  "devDependencies": {
     "electron": "^28.3.3",
     "electron-builder": "^24.9.1"
   },
@@ -14,30 +14,15 @@
     "appId": "com.messenger.app",
     "productName": "Messenger",
     "directories": {
-      "output": "../dist-electron"
+      "output": "../dist-electron2"
     },
     "files": [
-      "main.js",
-      "../server/**/*",
-      "../client/dist/**/*",
-      "!../server/node_modules/**/*"
-    ],
-    "extraResources": [
-      {
-        "from": "../server/node_modules",
-        "to": "server/node_modules"
-      }
+      "main.js"
     ],
     "win": {
-      "target": "nsis",
-      "icon": null
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "installerLanguages": [
-        "ru_RU"
-      ]
+      "target": "dir",
+      "icon": "../client/public/icon-512.png",
+      "signAndEditExecutable": false
     }
   }
 }

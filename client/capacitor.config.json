@@ -1,0 +1,13 @@
+{
+  "appId": "com.messenger.app",
+  "appName": "Messenger",
+  "webDir": "dist",
+  "server": {
+    "url": "https://messenger-production-fb61.up.railway.app",
+    "cleartext": false,
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}
