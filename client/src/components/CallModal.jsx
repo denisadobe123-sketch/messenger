@@ -37,6 +37,7 @@ export default function CallModal({ call, socket, currentUserId, onEnd }) {
   const remoteStreamRef = useRef(null);
   const durationInterval = useRef(null);
   const ringTimeoutRef = useRef(null);
+  const pendingCandidatesRef = useRef([]);
 
   const otherUserId = call.otherUserId;
   const isVideo = call.callType === 'video';
@@ -67,18 +68,45 @@ export default function CallModal({ call, socket, currentUserId, onEnd }) {
       if (fromUserId !== otherUserId || !pcRef.current) return;
       if (signal.type === 'offer') {
         pcRef.current.setRemoteDescription(new RTCSessionDescription(signal)).then(async () => {
+          await flushPendingCandidates();
           const answer = await pcRef.current.createAnswer();
           await pcRef.current.setLocalDescription(answer);
           socket.emit('call_signal', { toUserId: otherUserId, signal: answer });
         });
       } else if (signal.type === 'answer') {
-        pcRef.current.setRemoteDescription(new RTCSessionDescription(signal));
+        pcRef.current.setRemoteDescription(new RTCSessionDescription(signal)).then(flushPendingCandidates);
       } else if (signal.candidate) {
-        pcRef.current.addIceCandidate(new RTCIceCandidate(signal)).catch(() => {});
+        // Если remoteDescription ещё не установлен — кандидат придёт раньше offer/answer.
+        // Складываем в очередь и применяем сразу после setRemoteDescription.
+        if (pcRef.current.remoteDescription) {
+          pcRef.current.addIceCandidate(new RTCIceCandidate(signal)).catch(() => {});
+        } else {
+          pendingCandidatesRef.current.push(signal);
+        }
       }
     }
 
-    function onAccepted() { clearTimeout(ringTimeoutRef.current); setStatus('connected'); startTimer(); }
+    async function flushPendingCandidates() {
+      const pc = pcRef.current;
+      while (pendingCandidatesRef.current.length) {
+        const candidate = pendingCandidatesRef.current.shift();
+        await pc.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {});
+      }
+    }
+
+    async function onAccepted() {
+      clearTimeout(ringTimeoutRef.current);
+      setStatus('connected');
+      startTimer();
+      // Offer отправляется только теперь, когда у собеседника точно уже
+      // создано peer-соединение (prepareIncoming выполнился при показе экрана входящего звонка)
+      const pc = pcRef.current;
+      if (pc) {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket.emit('call_signal', { toUserId: otherUserId, signal: offer });
+      }
+    }
     function onRejected() { cleanup(); onEnd(); }
     function onEnded() { cleanup(); onEnd(); }
 
@@ -124,9 +152,8 @@ export default function CallModal({ call, socket, currentUserId, onEnd }) {
       const pc = await createPeerConnection();
       stream.getTracks().forEach(t => pc.addTrack(t, stream));
 
-      const offer = await pc.createOffer();
-      await pc.setLocalDescription(offer);
-      socket.emit('call_signal', { toUserId: otherUserId, signal: offer });
+      // Offer не отправляем сразу — ждём call_accepted, иначе у собеседника
+      // peer-соединение ещё не создано и сигнал потеряется (гонка состояний).
       socket.emit('call_invite', { toUserId: otherUserId, callType: call.callType });
     } catch {
       alert('Нет доступа к камере/микрофону');
