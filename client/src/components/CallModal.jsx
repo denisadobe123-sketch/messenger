@@ -29,6 +29,7 @@ export default function CallModal({ call, socket, currentUserId, onEnd }) {
   const [muted, setMuted] = useState(false);
   const [videoOff, setVideoOff] = useState(false);
   const [duration, setDuration] = useState(0);
+  const [debugState, setDebugState] = useState('');
 
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
@@ -65,6 +66,7 @@ export default function CallModal({ call, socket, currentUserId, onEnd }) {
 
   useEffect(() => {
     function onSignal({ fromUserId, signal }) {
+      console.log('[call] signal received:', signal.type || 'ice-candidate', 'from', fromUserId, 'pc exists:', !!pcRef.current);
       if (fromUserId !== otherUserId || !pcRef.current) return;
       if (signal.type === 'offer') {
         pcRef.current.setRemoteDescription(new RTCSessionDescription(signal)).then(async () => {
@@ -95,6 +97,7 @@ export default function CallModal({ call, socket, currentUserId, onEnd }) {
     }
 
     async function onAccepted() {
+      console.log('[call] call_accepted received, pc exists:', !!pcRef.current);
       clearTimeout(ringTimeoutRef.current);
       setStatus('connected');
       startTimer();
@@ -104,6 +107,7 @@ export default function CallModal({ call, socket, currentUserId, onEnd }) {
       if (pc) {
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
+        console.log('[call] sending offer');
         socket.emit('call_signal', { toUserId: otherUserId, signal: offer });
       }
     }
@@ -128,17 +132,24 @@ export default function CallModal({ call, socket, currentUserId, onEnd }) {
 
   async function createPeerConnection() {
     const pc = new RTCPeerConnection(ICE_SERVERS);
-    pc.onicecandidate = e => { if (e.candidate) socket.emit('call_signal', { toUserId: otherUserId, signal: e.candidate }); };
+    pc.onicecandidate = e => {
+      console.log('[call] local ICE candidate:', e.candidate?.type || 'end-of-candidates');
+      if (e.candidate) socket.emit('call_signal', { toUserId: otherUserId, signal: e.candidate });
+    };
     pc.ontrack = e => {
+      console.log('[call] remote track received:', e.track.kind);
       remoteStreamRef.current = e.streams[0];
       if (remoteVideoRef.current) remoteVideoRef.current.srcObject = e.streams[0];
     };
     pc.oniceconnectionstatechange = () => {
-      if (['disconnected', 'failed', 'closed'].includes(pc.iceConnectionState)) {
+      console.log('[call] iceConnectionState:', pc.iceConnectionState);
+      setDebugState(`ICE: ${pc.iceConnectionState}`);
+      if (pc.iceConnectionState === 'failed') {
         cleanup();
         onEnd();
       }
     };
+    pc.onconnectionstatechange = () => console.log('[call] connectionState:', pc.connectionState);
     pcRef.current = pc;
     return pc;
   }
@@ -234,6 +245,7 @@ export default function CallModal({ call, socket, currentUserId, onEnd }) {
           : status === 'connected' ? `${mins}:${secs.toString().padStart(2, '0')}`
           : 'Звоним...'}
       </div>
+      {debugState && <div className="call-debug-text">{debugState}</div>}
 
       <div className="call-controls">
         {isIncoming ? (
