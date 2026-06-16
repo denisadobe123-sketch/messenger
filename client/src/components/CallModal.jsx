@@ -34,6 +34,7 @@ export default function CallModal({ call, socket, currentUserId, onEnd }) {
   const remoteVideoRef = useRef(null);
   const pcRef = useRef(null);
   const localStreamRef = useRef(null);
+  const remoteStreamRef = useRef(null);
   const durationInterval = useRef(null);
   const ringTimeoutRef = useRef(null);
 
@@ -53,6 +54,13 @@ export default function CallModal({ call, socket, currentUserId, onEnd }) {
     if (call.status === 'incoming') prepareIncoming();
     return () => { cleanup(); clearTimeout(ringTimeoutRef.current); };
   }, []);
+
+  // Видео-элементы существуют только когда status !== 'incoming', поэтому
+  // при принятии звонка нужно повторно привязать уже полученные стримы к <video>.
+  useEffect(() => {
+    if (localVideoRef.current && localStreamRef.current) localVideoRef.current.srcObject = localStreamRef.current;
+    if (remoteVideoRef.current && remoteStreamRef.current) remoteVideoRef.current.srcObject = remoteStreamRef.current;
+  }, [status, isVideo]);
 
   useEffect(() => {
     function onSignal({ fromUserId, signal }) {
@@ -93,7 +101,10 @@ export default function CallModal({ call, socket, currentUserId, onEnd }) {
   async function createPeerConnection() {
     const pc = new RTCPeerConnection(ICE_SERVERS);
     pc.onicecandidate = e => { if (e.candidate) socket.emit('call_signal', { toUserId: otherUserId, signal: e.candidate }); };
-    pc.ontrack = e => { if (remoteVideoRef.current) remoteVideoRef.current.srcObject = e.streams[0]; };
+    pc.ontrack = e => {
+      remoteStreamRef.current = e.streams[0];
+      if (remoteVideoRef.current) remoteVideoRef.current.srcObject = e.streams[0];
+    };
     pc.oniceconnectionstatechange = () => {
       if (['disconnected', 'failed', 'closed'].includes(pc.iceConnectionState)) {
         cleanup();
@@ -171,57 +182,61 @@ export default function CallModal({ call, socket, currentUserId, onEnd }) {
   }
 
   const mins = Math.floor(duration / 60), secs = duration % 60;
-
-  if (status === 'incoming') {
-    return (
-      <div className="call-overlay">
-        <div className="call-avatar-pulse">{call.otherUsername?.[0]?.toUpperCase()}</div>
-        <div className="call-username">{call.otherUsername}</div>
-        <div className="call-status-text">{isVideo ? 'Видеозвонок' : 'Аудиозвонок'}...</div>
-        <div className="call-controls">
-          <button className="call-btn reject" onClick={reject}>
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M21 3l-18 18M3 3l18 18" stroke="white" strokeWidth="2.5"/></svg>
-          </button>
-          <button className="call-btn accept" onClick={accept}>
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.362 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-          </button>
-        </div>
-      </div>
-    );
-  }
+  const isIncoming = status === 'incoming';
 
   return (
     <div className="call-overlay">
-      {isVideo ? (
+      {/* Видео-элементы всегда смонтированы, чтобы refs привязывались сразу
+          при получении стрима, даже на экране входящего звонка. */}
+      {isVideo && !isIncoming ? (
         <div className="call-video-grid">
-          <video ref={remoteVideoRef} className="call-video-remote" autoPlay playsInline />
-          <video ref={localVideoRef} className="call-video-local" autoPlay playsInline muted />
+          <video ref={remoteVideoRef} autoPlay playsInline className="call-video-remote" />
+          <video ref={localVideoRef} autoPlay playsInline muted className="call-video-local" />
         </div>
       ) : (
         <>
+          <video ref={remoteVideoRef} autoPlay playsInline className="call-media-hidden" />
+          <video ref={localVideoRef} autoPlay playsInline muted className="call-media-hidden" />
           <div className="call-avatar-pulse">{call.otherUsername?.[0]?.toUpperCase()}</div>
           <div className="call-username">{call.otherUsername}</div>
         </>
       )}
+
       <div className="call-status-text">
-        {status === 'connected' ? `${mins}:${secs.toString().padStart(2, '0')}` : 'Звоним...'}
+        {isIncoming ? `${isVideo ? 'Видеозвонок' : 'Аудиозвонок'}...`
+          : status === 'connected' ? `${mins}:${secs.toString().padStart(2, '0')}`
+          : 'Звоним...'}
       </div>
+
       <div className="call-controls">
-        <button className={`call-btn mute ${muted ? 'active' : ''}`} onClick={toggleMute}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/>
-          </svg>
-        </button>
-        {isVideo && (
-          <button className={`call-btn video-toggle ${videoOff ? 'active' : ''}`} onClick={toggleVideo}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
-            </svg>
-          </button>
+        {isIncoming ? (
+          <>
+            <button className="call-btn reject" onClick={reject}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M21 3l-18 18M3 3l18 18" stroke="white" strokeWidth="2.5"/></svg>
+            </button>
+            <button className="call-btn accept" onClick={accept}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.362 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+            </button>
+          </>
+        ) : (
+          <>
+            <button className={`call-btn mute ${muted ? 'active' : ''}`} onClick={toggleMute}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/>
+              </svg>
+            </button>
+            {isVideo && (
+              <button className={`call-btn video-toggle ${videoOff ? 'active' : ''}`} onClick={toggleVideo}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+                </svg>
+              </button>
+            )}
+            <button className="call-btn end" onClick={endCall}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M21 3l-18 18M3 3l18 18" stroke="white" strokeWidth="2.5"/></svg>
+            </button>
+          </>
         )}
-        <button className="call-btn end" onClick={endCall}>
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M21 3l-18 18M3 3l18 18" stroke="white" strokeWidth="2.5"/></svg>
-        </button>
       </div>
     </div>
   );
