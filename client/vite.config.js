@@ -12,8 +12,8 @@ export default defineConfig({
         name: 'Messenger',
         short_name: 'Messenger',
         description: 'Быстрый и удобный мессенджер',
-        theme_color: '#17212b',
-        background_color: '#17212b',
+        theme_color: '#0a0e14',
+        background_color: '#0a0e14',
         display: 'standalone',
         orientation: 'portrait',
         start_url: '/',
@@ -27,7 +27,16 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico}'],
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
+        navigateFallback: null,
         runtimeCaching: [
+          {
+            urlPattern: ({ request }) => request.mode === 'navigate',
+            handler: 'NetworkFirst',
+            options: { cacheName: 'html-cache', networkTimeoutSeconds: 5 }
+          },
           {
             urlPattern: /\/uploads\//,
             handler: 'CacheFirst',
