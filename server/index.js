@@ -23,17 +23,61 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
 function loadDB() {
-  if (!fs.existsSync(DB_FILE)) {
-    const initial = { users: [], chats: [], messages: [] };
-    fs.writeFileSync(DB_FILE, JSON.stringify(initial, null, 2));
-    return initial;
+  const tryParse = (file) => {
+    if (!fs.existsSync(file)) return null;
+    try { return JSON.parse(fs.readFileSync(file, 'utf8')); }
+    catch { return null; }
+  };
+  // Основной файл
+  let data = tryParse(DB_FILE);
+  if (data) return normalizeDB(data);
+  // Повреждён — пробуем резервную копию
+  if (fs.existsSync(DB_FILE)) {
+    const backup = tryParse(DB_FILE + '.bak');
+    if (backup) {
+      console.error('⚠️  db.json повреждён, восстановлено из .bak');
+      return normalizeDB(backup);
+    }
+    // Сохраняем битый файл для разбора и стартуем с чистого
+    try { fs.renameSync(DB_FILE, `${DB_FILE}.corrupt.${Date.now()}`); } catch {}
+    console.error('⚠️  db.json повреждён и .bak недоступен — старт с пустой БД');
   }
-  return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+  const initial = { users: [], chats: [], messages: [] };
+  return initial;
 }
 
-function saveDB(db) {
-  fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+function normalizeDB(d) {
+  return { users: d.users || [], chats: d.chats || [], messages: d.messages || [] };
 }
+
+// Единый объект БД в памяти — все обработчики работают с ним, без перечитывания
+const DB = loadDB();
+
+// Атомарная запись: пишем во временный файл, бэкапим текущий, затем переименовываем
+let saveScheduled = false;
+function saveDB() {
+  if (saveScheduled) return;
+  saveScheduled = true;
+  setImmediate(flushDB);
+}
+function flushDB() {
+  saveScheduled = false;
+  const tmp = `${DB_FILE}.tmp`;
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(DB));
+    if (fs.existsSync(DB_FILE)) {
+      try { fs.copyFileSync(DB_FILE, `${DB_FILE}.bak`); } catch {}
+    }
+    fs.renameSync(tmp, DB_FILE);
+  } catch (e) {
+    console.error('Ошибка записи БД:', e.message);
+  }
+}
+// Гарантированный сброс на диск при остановке (редеплой Railway шлёт SIGTERM)
+function flushSync() { saveScheduled = false; flushDB(); }
+process.on('SIGTERM', () => { flushSync(); process.exit(0); });
+process.on('SIGINT', () => { flushSync(); process.exit(0); });
+process.on('exit', flushSync);
 
 function loadFCM() {
   if (!fs.existsSync(FCM_FILE)) return {};
@@ -113,20 +157,20 @@ app.post('/register', async (req, res) => {
   const { username, password } = req.body;
   if (!username?.trim() || !password) return res.status(400).json({ error: 'Введите логин и пароль' });
   if (password.length < 6) return res.status(400).json({ error: 'Пароль минимум 6 символов' });
-  const db = loadDB();
+  const db = DB;
   if (db.users.find(u => u.username === username.trim()))
     return res.status(400).json({ error: 'Логин уже занят' });
   const user = { id: Date.now().toString(), username: username.trim(),
     password: await bcrypt.hash(password, 10), avatar: null, bio: null, status: 'online', createdAt: new Date().toISOString() };
   db.users.push(user);
-  saveDB(db);
+  saveDB();
   const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET);
   res.json({ token, user: safeUser(user) });
 });
 
 app.post('/login', async (req, res) => {
   const { username, password } = req.body;
-  const db = loadDB();
+  const db = DB;
   const user = db.users.find(u => u.username === username);
   if (!user) return res.status(400).json({ error: 'Пользователь не найден' });
   if (!await bcrypt.compare(password, user.password)) return res.status(400).json({ error: 'Неверный пароль' });
@@ -136,7 +180,7 @@ app.post('/login', async (req, res) => {
 
 // ── Profile ───────────────────────────────────────────────────────────────────
 app.get('/profile', authMiddleware, (req, res) => {
-  const db = loadDB();
+  const db = DB;
   const user = db.users.find(u => u.id === req.user.id);
   if (!user) return res.status(404).json({ error: 'Не найден' });
   res.json(safeUser(user));
@@ -144,23 +188,23 @@ app.get('/profile', authMiddleware, (req, res) => {
 
 app.put('/profile', authMiddleware, (req, res) => {
   const { bio, status } = req.body;
-  const db = loadDB();
+  const db = DB;
   const user = db.users.find(u => u.id === req.user.id);
   if (!user) return res.status(404).json({ error: 'Не найден' });
   if (bio !== undefined) user.bio = bio;
   if (status !== undefined) user.status = status;
-  saveDB(db);
+  saveDB();
   io.emit('user_profile_updated', safeUser(user));
   res.json(safeUser(user));
 });
 
 app.post('/profile/avatar', authMiddleware, upload.single('avatar'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
-  const db = loadDB();
+  const db = DB;
   const user = db.users.find(u => u.id === req.user.id);
   if (!user) return res.status(404).json({ error: 'Не найден' });
   user.avatar = `${getBaseUrl(req)}/uploads/${req.file.filename}`;
-  saveDB(db);
+  saveDB();
   io.emit('user_profile_updated', safeUser(user));
   res.json(safeUser(user));
 });
@@ -169,12 +213,12 @@ app.put('/change-password', authMiddleware, async (req, res) => {
   const { currentPassword, newPassword } = req.body;
   if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Заполните все поля' });
   if (newPassword.length < 6) return res.status(400).json({ error: 'Новый пароль минимум 6 символов' });
-  const db = loadDB();
+  const db = DB;
   const user = db.users.find(u => u.id === req.user.id);
   if (!user) return res.status(404).json({ error: 'Не найден' });
   if (!await bcrypt.compare(currentPassword, user.password)) return res.status(400).json({ error: 'Неверный текущий пароль' });
   user.password = await bcrypt.hash(newPassword, 10);
-  saveDB(db);
+  saveDB();
   res.json({ ok: true });
 });
 
@@ -200,14 +244,14 @@ app.delete('/fcm-token', authMiddleware, (req, res) => {
 
 // ── Users ─────────────────────────────────────────────────────────────────────
 app.get('/users', authMiddleware, (req, res) => {
-  const db = loadDB();
+  const db = DB;
   const q = (req.query.q || '').toLowerCase();
   res.json(db.users.filter(u => u.id !== req.user.id && u.username.toLowerCase().includes(q)).map(safeUser));
 });
 
 // ── Chats ─────────────────────────────────────────────────────────────────────
 app.get('/chats', authMiddleware, (req, res) => {
-  const db = loadDB();
+  const db = DB;
   const userChats = db.chats.filter(c => c.members.includes(req.user.id));
   const enriched = userChats.map(chat => {
     const msgs = db.messages.filter(m => m.chatId === chat.id);
@@ -230,7 +274,7 @@ app.get('/chats', authMiddleware, (req, res) => {
 
 app.post('/chats', authMiddleware, (req, res) => {
   const { type, name, members } = req.body;
-  const db = loadDB();
+  const db = DB;
   if (type === 'private') {
     const existing = db.chats.find(c => c.type === 'private' && c.members.includes(req.user.id) && c.members.includes(members[0]));
     if (existing) return res.json(existing);
@@ -239,25 +283,25 @@ app.post('/chats', authMiddleware, (req, res) => {
   const chat = { id: Date.now().toString(), type, name: name || null, members: allMembers,
     pinnedMessageId: null, createdBy: req.user.id, createdAt: new Date().toISOString() };
   db.chats.push(chat);
-  saveDB(db);
-  allMembers.forEach(uid => { const sid = onlineUsers.get(uid); if (sid) io.to(sid).emit('new_chat', chat); });
+  saveDB();
+  allMembers.forEach(uid => { joinUserToChat(uid, chat.id); emitToUser(uid, 'new_chat', chat); });
   res.json(chat);
 });
 
 // ── Messages ──────────────────────────────────────────────────────────────────
 app.get('/messages/:chatId', authMiddleware, (req, res) => {
-  const db = loadDB();
+  const db = DB;
   const chat = db.chats.find(c => c.id === req.params.chatId);
   if (!chat || !chat.members.includes(req.user.id)) return res.status(403).json({ error: 'Нет доступа' });
   const messages = db.messages.filter(m => m.chatId === req.params.chatId);
   let changed = false;
   messages.forEach(m => { if (!m.readBy.includes(req.user.id)) { m.readBy.push(req.user.id); changed = true; } });
-  if (changed) saveDB(db);
+  if (changed) saveDB();
   res.json(messages);
 });
 
 app.get('/messages/:chatId/search', authMiddleware, (req, res) => {
-  const db = loadDB();
+  const db = DB;
   const chat = db.chats.find(c => c.id === req.params.chatId);
   if (!chat || !chat.members.includes(req.user.id)) return res.status(403).json({ error: 'Нет доступа' });
   const q = (req.query.q || '').toLowerCase().trim();
@@ -272,7 +316,34 @@ app.post('/upload', authMiddleware, upload.single('file'), (req, res) => {
 });
 
 // ── Socket.io ─────────────────────────────────────────────────────────────────
+// userId -> Set<socketId>  (поддержка нескольких устройств одного пользователя)
 const onlineUsers = new Map();
+
+function addOnline(userId, socketId) {
+  if (!onlineUsers.has(userId)) onlineUsers.set(userId, new Set());
+  onlineUsers.get(userId).add(socketId);
+}
+function removeOnline(userId, socketId) {
+  const set = onlineUsers.get(userId);
+  if (!set) return false;
+  set.delete(socketId);
+  if (set.size === 0) { onlineUsers.delete(userId); return true; } // true = ушёл полностью оффлайн
+  return false;
+}
+function isOnline(userId) {
+  return onlineUsers.has(userId);
+}
+function emitToUser(userId, event, payload) {
+  const set = onlineUsers.get(userId);
+  if (!set) return;
+  for (const sid of set) io.to(sid).emit(event, payload);
+}
+// Все сокеты пользователя входят в комнату чата (для мгновенной доставки в новый чат)
+function joinUserToChat(userId, chatId) {
+  const set = onlineUsers.get(userId);
+  if (!set) return;
+  for (const sid of set) io.sockets.sockets.get(sid)?.join(chatId);
+}
 
 io.use((socket, next) => {
   try { socket.user = jwt.verify(socket.handshake.auth.token, JWT_SECRET); next(); }
@@ -281,14 +352,15 @@ io.use((socket, next) => {
 
 io.on('connection', (socket) => {
   const userId = socket.user.id;
-  onlineUsers.set(userId, socket.id);
-  const db = loadDB();
+  const wasOffline = !isOnline(userId);
+  addOnline(userId, socket.id);
+  const db = DB;
   db.chats.filter(c => c.members.includes(userId)).forEach(c => socket.join(c.id));
-  io.emit('user_status', { userId, online: true });
+  if (wasOffline) io.emit('user_status', { userId, online: true });
 
   socket.on('send_message', async (data) => {
     const { chatId, text, file, replyTo, voice, sticker, forwardOf } = data;
-    const db = loadDB();
+    const db = DB;
     const chat = db.chats.find(c => c.id === chatId);
     if (!chat || !chat.members.includes(userId)) return;
 
@@ -304,56 +376,56 @@ io.on('connection', (socket) => {
       forwardOf: forwardOf || null, replyTo: replySnippet, reactions: [], edited: false, deleted: false,
       createdAt: new Date().toISOString(), readBy: [userId] };
     db.messages.push(message);
-    saveDB(db);
+    saveDB();
     io.to(chatId).emit('new_message', message);
 
     // Push уведомления оффлайн пользователям
     const body = sticker || text || (voice ? '🎤 Голосовое' : '📎 Файл');
     for (const memberId of chat.members) {
-      if (memberId !== userId && !onlineUsers.has(memberId)) {
+      if (memberId !== userId && !isOnline(memberId)) {
         sendPushToUser(memberId, socket.user.username, body);
       }
     }
   });
 
   socket.on('edit_message', ({ messageId, text }) => {
-    const db = loadDB();
+    const db = DB;
     const msg = db.messages.find(m => m.id === messageId);
     if (!msg || msg.senderId !== userId || msg.deleted) return;
     msg.text = text; msg.edited = true;
-    saveDB(db);
+    saveDB();
     io.to(msg.chatId).emit('message_edited', { messageId, text, edited: true });
   });
 
   socket.on('delete_message', ({ messageId }) => {
-    const db = loadDB();
+    const db = DB;
     const msg = db.messages.find(m => m.id === messageId);
     if (!msg || msg.senderId !== userId) return;
     msg.deleted = true; msg.text = null; msg.file = null; msg.voice = null; msg.sticker = null;
-    saveDB(db);
+    saveDB();
     const chat = db.chats.find(c => c.id === msg.chatId);
-    if (chat?.pinnedMessageId === messageId) { chat.pinnedMessageId = null; saveDB(db); io.to(msg.chatId).emit('chat_pinned', { chatId: msg.chatId, pinnedMessageId: null }); }
+    if (chat?.pinnedMessageId === messageId) { chat.pinnedMessageId = null; saveDB(); io.to(msg.chatId).emit('chat_pinned', { chatId: msg.chatId, pinnedMessageId: null }); }
     io.to(msg.chatId).emit('message_deleted', { messageId });
   });
 
   socket.on('pin_message', ({ chatId, messageId }) => {
-    const db = loadDB();
+    const db = DB;
     const chat = db.chats.find(c => c.id === chatId);
     if (!chat || !chat.members.includes(userId)) return;
-    chat.pinnedMessageId = messageId; saveDB(db);
+    chat.pinnedMessageId = messageId; saveDB();
     io.to(chatId).emit('chat_pinned', { chatId, pinnedMessageId: messageId });
   });
 
   socket.on('unpin_message', ({ chatId }) => {
-    const db = loadDB();
+    const db = DB;
     const chat = db.chats.find(c => c.id === chatId);
     if (!chat || !chat.members.includes(userId)) return;
-    chat.pinnedMessageId = null; saveDB(db);
+    chat.pinnedMessageId = null; saveDB();
     io.to(chatId).emit('chat_pinned', { chatId, pinnedMessageId: null });
   });
 
   socket.on('add_reaction', ({ messageId, emoji }) => {
-    const db = loadDB();
+    const db = DB;
     const msg = db.messages.find(m => m.id === messageId);
     if (!msg) return;
     if (!msg.reactions) msg.reactions = [];
@@ -364,22 +436,22 @@ io.on('connection', (socket) => {
         if (!existing.userIds.length) msg.reactions = msg.reactions.filter(r => r.emoji !== emoji);
       } else existing.userIds.push(userId);
     } else msg.reactions.push({ emoji, userIds: [userId] });
-    saveDB(db);
+    saveDB();
     io.to(msg.chatId).emit('reaction_updated', { messageId, reactions: msg.reactions });
   });
 
   socket.on('set_status', ({ status }) => {
-    const db = loadDB();
+    const db = DB;
     const user = db.users.find(u => u.id === userId);
-    if (user) { user.status = status; saveDB(db); }
+    if (user) { user.status = status; saveDB(); }
     io.emit('user_status_detail', { userId, status });
   });
 
   socket.on('read_messages', ({ chatId }) => {
-    const db = loadDB();
+    const db = DB;
     let changed = false;
     db.messages.filter(m => m.chatId === chatId && !m.readBy.includes(userId)).forEach(m => { m.readBy.push(userId); changed = true; });
-    if (changed) saveDB(db);
+    if (changed) saveDB();
     socket.to(chatId).emit('messages_read', { chatId, userId });
   });
 
@@ -388,16 +460,18 @@ io.on('connection', (socket) => {
   socket.on('join_chat', chatId => socket.join(chatId));
 
   socket.on('call_invite', ({ chatId, toUserId, callType }) => {
-    const sid = onlineUsers.get(toUserId);
-    if (sid) io.to(sid).emit('call_incoming', { chatId, fromUserId: userId, fromUsername: socket.user.username, callType });
+    if (isOnline(toUserId)) emitToUser(toUserId, 'call_incoming', { chatId, fromUserId: userId, fromUsername: socket.user.username, callType });
     else socket.emit('call_unavailable', { toUserId });
   });
-  socket.on('call_signal', ({ toUserId, signal }) => { const sid = onlineUsers.get(toUserId); if (sid) io.to(sid).emit('call_signal', { fromUserId: userId, signal }); });
-  socket.on('call_accept', ({ toUserId }) => { const sid = onlineUsers.get(toUserId); if (sid) io.to(sid).emit('call_accepted', { fromUserId: userId }); });
-  socket.on('call_reject', ({ toUserId }) => { const sid = onlineUsers.get(toUserId); if (sid) io.to(sid).emit('call_rejected', { fromUserId: userId }); });
-  socket.on('call_end', ({ toUserId }) => { const sid = onlineUsers.get(toUserId); if (sid) io.to(sid).emit('call_ended', { fromUserId: userId }); });
+  socket.on('call_signal', ({ toUserId, signal }) => emitToUser(toUserId, 'call_signal', { fromUserId: userId, signal }));
+  socket.on('call_accept', ({ toUserId }) => emitToUser(toUserId, 'call_accepted', { fromUserId: userId }));
+  socket.on('call_reject', ({ toUserId }) => emitToUser(toUserId, 'call_rejected', { fromUserId: userId }));
+  socket.on('call_end', ({ toUserId }) => emitToUser(toUserId, 'call_ended', { fromUserId: userId }));
 
-  socket.on('disconnect', () => { onlineUsers.delete(userId); io.emit('user_status', { userId, online: false }); });
+  socket.on('disconnect', () => {
+    const wentOffline = removeOnline(userId, socket.id);
+    if (wentOffline) io.emit('user_status', { userId, online: false });
+  });
 });
 
 if (isProd) {
