@@ -3,7 +3,7 @@ import { Capacitor } from '@capacitor/core';
 import { Browser } from '@capacitor/browser';
 import { API_URL } from '../api.js';
 
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.4.0';
 
 function parseVer(v) {
   return (v || '0').split('.').map(Number).reduce((acc, n, i) => acc + n * Math.pow(1000, 2 - i), 0);
