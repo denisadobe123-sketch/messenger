@@ -840,3 +840,173 @@ body {
 }
 .sticker-emoji { animation: stickerPop 0.35s cubic-bezier(.34,1.56,.64,1); }
 .sticker-option:active { animation: stickerPop 0.3s ease; }
+
+/* ── OTA Update Modal ────────────────────────────────── */
+.update-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.65);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 9999; padding: 20px;
+}
+.update-modal {
+  background: var(--bg-secondary); border-radius: 20px;
+  padding: 32px 28px; max-width: 340px; width: 100%;
+  text-align: center; animation: slideUp 0.25s ease;
+  box-shadow: 0 20px 60px var(--shadow);
+}
+.update-icon { font-size: 52px; margin-bottom: 12px; }
+.update-title { font-size: 20px; font-weight: 800; margin-bottom: 6px; }
+.update-version { font-size: 13px; color: var(--accent); font-weight: 600; margin-bottom: 12px; }
+.update-desc { font-size: 14px; color: var(--text-secondary); line-height: 1.5; margin-bottom: 24px; }
+.update-btn {
+  width: 100%; padding: 14px; background: var(--accent); color: white;
+  border: none; border-radius: 12px; font-size: 15px; font-weight: 700;
+  cursor: pointer; transition: background 0.2s; margin-bottom: 10px;
+}
+.update-btn:hover { background: var(--accent-hover); }
+.update-skip {
+  background: none; border: none; color: var(--text-muted);
+  font-size: 14px; cursor: pointer; padding: 8px;
+}
+.update-skip:hover { color: var(--text-secondary); }
+
+/* ══════════════════════════════════════════════════════
+   MOBILE — полноценная поддержка телефонов
+   ══════════════════════════════════════════════════════ */
+
+/* Базовые фиксы для мобильного браузера */
+@supports (padding: env(safe-area-inset-top)) {
+  body { padding-top: env(safe-area-inset-top); }
+  .chat-input-area, .recording-bar {
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+  .sidebar-footer {
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+}
+
+@media (max-width: 760px) {
+  /* Запрещаем зум при фокусе на инпут (минимум 16px) */
+  .auth-input, .msg-input, .modal-input, .search-input,
+  .chat-search-bar input, input, textarea, select {
+    font-size: 16px !important;
+  }
+
+  /* Полный экран */
+  body, #root { height: 100dvh; overflow: hidden; }
+
+  /* Лэйаут: сайдбар и чат — один экран на всю ширину */
+  .app-layout {
+    flex-direction: column;
+    height: 100dvh;
+  }
+
+  /* Сайдбар — на весь экран, скрывается когда чат открыт */
+  .sidebar {
+    width: 100%;
+    min-width: unset;
+    border-right: none;
+    flex: 1;
+    display: flex;
+  }
+  .app-layout.chat-open .sidebar {
+    display: none;
+  }
+
+  /* Окно чата — скрыто пока не выбран чат */
+  .chat-window, .no-chat {
+    display: none;
+    position: fixed;
+    inset: 0;
+    inset-top: env(safe-area-inset-top, 0);
+    z-index: 50;
+    flex-direction: column;
+  }
+  .app-layout.chat-open .chat-window {
+    display: flex;
+  }
+
+  /* Шапка чата */
+  .chat-header {
+    padding-top: max(14px, env(safe-area-inset-top));
+  }
+
+  /* Кнопка назад — всегда видна */
+  .back-btn {
+    display: flex !important;
+  }
+
+  /* Размер кнопок — удобный для пальца */
+  .icon-btn { padding: 10px; }
+  .send-btn { width: 46px; height: 46px; }
+  .attach-btn { padding: 10px; }
+  .voice-record-btn { padding: 10px; }
+
+  /* Сообщения */
+  .messages-wrap {
+    padding: 8px 10px;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+  .msg-bubble { max-width: 82vw; }
+
+  /* Инпут чата */
+  .chat-input-area { padding: 10px 12px; gap: 8px; }
+  .msg-input { font-size: 16px !important; padding: 10px 14px; }
+
+  /* Запись голосового */
+  .recording-bar { padding: 12px 16px; }
+
+  /* Авторизация */
+  .auth-box {
+    width: 100%;
+    min-height: 100dvh;
+    border-radius: 0;
+    padding: 40px 24px;
+    padding-top: max(40px, env(safe-area-inset-top));
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  /* Модалки — снизу вверх */
+  .modal-overlay { align-items: flex-end; }
+  .modal {
+    width: 100%;
+    border-radius: 20px 20px 0 0;
+    padding: 24px 20px;
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+    max-height: 85dvh;
+  }
+
+  /* Список чатов — увеличенные тач-цели */
+  .chat-item { padding: 12px 14px; }
+  .user-item { padding: 12px 14px; }
+
+  /* Тосты */
+  .toast-wrap { left: 12px; right: 12px; top: max(12px, env(safe-area-inset-top)); }
+  .toast-item { width: 100%; }
+
+  /* Пикер стикеров — адаптируем позицию */
+  .sticker-picker { right: -60px; width: 260px; }
+
+  /* Скрываем "нет чата" на мобилке */
+  .no-chat { display: none; }
+
+  /* Профиль */
+  .profile-page { padding: 16px; }
+
+  /* Поиск по чатам */
+  .chat-search-bar input { font-size: 16px !important; }
+
+  /* Поле "сообщение" не уменьшается */
+  .msg-input { min-height: 40px; }
+
+  /* Убираем hover-эффекты которые мешают на touch */
+  .chat-item:hover { transform: none; }
+}
+
+/* Планшеты */
+@media (min-width: 761px) and (max-width: 1024px) {
+  .sidebar { width: 260px; min-width: 220px; }
+  .msg-bubble { max-width: 65%; }
+}

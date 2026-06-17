@@ -7,6 +7,8 @@ import Toast from './components/Toast.jsx';
 import { connectSocket, disconnectSocket, getSocket } from './socket.js';
 import { API_URL } from './api.js';
 import { getTheme, applyTheme } from './theme.js';
+import { initPushNotifications, removePushToken } from './pushNotifications.js';
+import UpdateChecker from './components/UpdateChecker.jsx';
 
 // Звук уведомления (короткий beep через Web Audio API)
 function playNotificationSound() {
@@ -62,6 +64,7 @@ export default function App() {
   useEffect(() => {
     if (!user || !token) return;
     requestNotificationPermission();
+    initPushNotifications(token);
 
     const socket = connectSocket(token);
 
@@ -132,6 +135,7 @@ export default function App() {
   }
 
   function handleLogout() {
+    removePushToken(token);
     localStorage.removeItem('token'); localStorage.removeItem('user');
     disconnectSocket(); setUser(null); setToken(''); setChats([]); setSelectedChat(null);
   }
@@ -212,6 +216,7 @@ export default function App() {
         onDismiss={dismissToast}
         onClick={t => { const chat = chats.find(c => c.id === t.chatId); if (chat) handleSelectChat(chat); }}
       />
+      <UpdateChecker />
     </div>
   );
 }
