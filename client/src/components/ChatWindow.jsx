@@ -3,6 +3,7 @@ import MessageItem from './MessageItem.jsx';
 import StickerPicker from './StickerPicker.jsx';
 import { getSocket } from '../socket.js';
 import { API_URL } from '../api.js';
+import { tap } from '../native.js';
 
 const STATUS_LABELS = { online: 'В сети', away: 'Отошёл', dnd: 'Не беспокоить', offline: 'Не в сети' };
 
@@ -145,6 +146,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     }
 
     socket.emit('send_message', { chatId: chat.id, text: text.trim() || null, file: fileData, replyTo: replyingTo?.id || null });
+    tap('light');
     setText(''); setFileToSend(null); setReplyingTo(null);
     socket.emit('stop_typing', { chatId: chat.id });
   }

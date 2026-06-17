@@ -8,6 +8,7 @@ import { connectSocket, disconnectSocket, getSocket } from './socket.js';
 import { API_URL } from './api.js';
 import { getTheme, applyTheme } from './theme.js';
 import { initPushNotifications, removePushToken } from './pushNotifications.js';
+import { initNative, tap } from './native.js';
 import UpdateChecker from './components/UpdateChecker.jsx';
 
 // Звук уведомления (короткий beep через Web Audio API)
@@ -59,7 +60,7 @@ export default function App() {
   }
 
   useEffect(() => { selectedChatRef.current = selectedChat; }, [selectedChat]);
-  useEffect(() => { applyTheme(getTheme()); }, []);
+  useEffect(() => { applyTheme(getTheme()); initNative(); }, []);
 
   useEffect(() => {
     if (!user || !token) return;
@@ -141,6 +142,7 @@ export default function App() {
   }
 
   function handleSelectChat(chat) {
+    tap('light');
     setSelectedChat(chat);
     setChats(prev => prev.map(c => c.id === chat.id ? { ...c, unread: 0 } : c));
     const socket = getSocket();

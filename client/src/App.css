@@ -1,42 +1,48 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg-primary: #17212b;
-  --bg-secondary: #232e3c;
-  --bg-tertiary: #1c2733;
-  --bg-hover: #2b3a4a;
-  --bg-active: #2b5278;
-  --accent: #2b7fdc;
-  --accent-hover: #3a8fe8;
-  --text-primary: #e8eaed;
-  --text-secondary: #8a9db5;
-  --text-muted: #5c7080;
-  --border: #2b3a4a;
-  --msg-out: #2b5278;
-  --msg-in: #232e3c;
-  --danger: #e53935;
-  --online: #4caf50;
-  --away: #ff9800;
-  --dnd: #e53935;
-  --shadow: rgba(0,0,0,0.35);
+  --bg-primary: #0a0e14;
+  --bg-secondary: #111824;
+  --bg-tertiary: #0d131c;
+  --bg-hover: #19222f;
+  --bg-active: rgba(0,229,192,0.12);
+  --accent: #00e5c0;
+  --accent-hover: #2af0d2;
+  --accent-deep: #00b89a;
+  --accent-glow: rgba(0,229,192,0.45);
+  --accent-ink: #042b25;
+  --text-primary: #eaf3f1;
+  --text-secondary: #7e8d97;
+  --text-muted: #49575f;
+  --border: #1a242f;
+  --msg-out: #0f2f2a;
+  --msg-in: #151d28;
+  --danger: #ff5a5a;
+  --online: #00e5c0;
+  --away: #ffb020;
+  --dnd: #ff5a5a;
+  --shadow: rgba(0,0,0,0.55);
 }
 
 [data-theme="light"] {
-  --bg-primary: #f4f6f8;
+  --bg-primary: #f2f5f4;
   --bg-secondary: #ffffff;
-  --bg-tertiary: #eef1f4;
-  --bg-hover: #e9edf1;
-  --bg-active: #d6e8fb;
-  --accent: #2b7fdc;
-  --accent-hover: #1f6cc2;
-  --text-primary: #1c2733;
-  --text-secondary: #5c7080;
-  --text-muted: #8a9db5;
-  --border: #e0e4e8;
-  --msg-out: #d6e8fb;
+  --bg-tertiary: #eef2f1;
+  --bg-hover: #e7edeb;
+  --bg-active: rgba(0,191,158,0.14);
+  --accent: #00bf9e;
+  --accent-hover: #00a98c;
+  --accent-deep: #00a98c;
+  --accent-glow: rgba(0,191,158,0.35);
+  --accent-ink: #ffffff;
+  --text-primary: #14201d;
+  --text-secondary: #5c706a;
+  --text-muted: #93a39d;
+  --border: #e0e6e4;
+  --msg-out: #d2f5ee;
   --msg-in: #ffffff;
   --danger: #e53935;
-  --online: #43a047;
+  --online: #00bf9e;
   --away: #fb8c00;
   --dnd: #e53935;
   --shadow: rgba(0,0,0,0.1);
@@ -65,7 +71,9 @@ body {
 .auth-wrapper {
   flex: 1; display: flex; align-items: center; justify-content: center;
   background: var(--bg-primary);
-  background-image: radial-gradient(ellipse at 60% 40%, rgba(43,127,220,0.08) 0%, transparent 60%);
+  background-image:
+    radial-gradient(ellipse at 70% 20%, rgba(0,229,192,0.12) 0%, transparent 55%),
+    radial-gradient(ellipse at 20% 90%, rgba(0,229,192,0.06) 0%, transparent 50%);
 }
 
 .auth-box {
@@ -302,7 +310,9 @@ body {
 /* ── Chat Window ─────────────────────────────────── */
 .chat-window {
   flex: 1; display: flex; flex-direction: column; background: var(--bg-primary);
-  background-image: radial-gradient(ellipse at 20% 50%, rgba(43,127,220,0.04) 0%, transparent 50%);
+  background-image:
+    radial-gradient(ellipse at 80% 0%, rgba(0,229,192,0.06) 0%, transparent 45%),
+    radial-gradient(ellipse at 10% 100%, rgba(0,229,192,0.04) 0%, transparent 45%);
 }
 
 .chat-header {
@@ -690,37 +700,65 @@ body {
 .profile-page-body { padding: 20px; flex: 1; }
 .profile-divider { height: 1px; background: var(--border); margin: 4px 0 0; }
 
-/* ── Modern accents ──────────────────────────────── */
+/* ── Modern accents (premium dark + neon) ────────── */
 .avatar {
-  background: linear-gradient(135deg, var(--accent), #5aa9ec);
-  box-shadow: 0 2px 8px rgba(43,127,220,0.25);
+  background: linear-gradient(135deg, var(--accent-deep), var(--accent));
+  box-shadow: 0 2px 12px var(--accent-glow);
+  color: var(--accent-ink);
 }
-.avatar.group { background: linear-gradient(135deg, #6c63d5, #9b8ff0); }
+.avatar.group { background: linear-gradient(135deg, #6c63d5, #9b8ff0); color: #fff; }
 
 .send-btn {
   background: linear-gradient(135deg, var(--accent), var(--accent-hover));
-  box-shadow: 0 3px 10px rgba(43,127,220,0.4);
+  color: var(--accent-ink);
+  box-shadow: 0 0 18px var(--accent-glow);
 }
-.send-btn:hover { box-shadow: 0 4px 14px rgba(43,127,220,0.55); }
+.send-btn:hover { box-shadow: 0 0 26px var(--accent-glow); }
 
-.auth-btn { background: linear-gradient(135deg, var(--accent), var(--accent-hover)); }
+.auth-btn {
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  color: var(--accent-ink);
+  box-shadow: 0 0 20px var(--accent-glow);
+}
+.auth-tab.active { background: var(--accent); color: var(--accent-ink); }
+.btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent-hover)); color: var(--accent-ink); box-shadow: 0 0 16px var(--accent-glow); }
+.btn-primary:hover { background: linear-gradient(135deg, var(--accent-hover), var(--accent)); }
 
-.sidebar-tab.active, .chat-item.active {
-  background: linear-gradient(135deg, var(--bg-active), rgba(43,127,220,0.18));
+.sidebar-tab.active {
+  background: var(--bg-active);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent-glow);
+}
+.chat-item.active {
+  background: var(--bg-active);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .msg-out {
-  background: linear-gradient(135deg, var(--msg-out), rgba(43,127,220,0.22));
+  background: linear-gradient(135deg, var(--msg-out), #123e36);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+}
+.msg-in { box-shadow: 0 2px 10px rgba(0,0,0,0.25); }
+
+.unread-badge {
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  color: var(--accent-ink);
+  box-shadow: 0 0 10px var(--accent-glow);
 }
 
-.unread-badge { background: linear-gradient(135deg, var(--accent), var(--accent-hover)); }
+.status-dot.online { box-shadow: 0 0 8px var(--accent-glow); }
 
 .chat-item, .user-item, .sidebar-tab, .icon-btn, .btn, .auth-btn { will-change: transform; }
 .chat-item:hover { transform: translateX(1px); }
 
-.sidebar, .chat-window { backdrop-filter: blur(0px); }
+::selection { background: rgba(0,229,192,0.3); }
 
-::selection { background: rgba(43,127,220,0.35); }
+/* Neon focus rings */
+.auth-input:focus, .modal-input:focus, .status-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.search-input:focus { box-shadow: 0 0 0 2px var(--accent-glow); }
 
 /* ── Stickers ────────────────────────────────────── */
 .sticker-picker-wrap { position: relative; }
@@ -1010,3 +1048,128 @@ body {
   .sidebar { width: 260px; min-width: 220px; }
   .msg-bubble { max-width: 65%; }
 }
+
+/* ══════════════════════════════════════════════════════
+   PREMIUM POLISH — неон, стекло, тактильность
+   ══════════════════════════════════════════════════════ */
+
+/* Стеклянные шапки и панели */
+.sidebar-header, .chat-header {
+  background: color-mix(in srgb, var(--bg-secondary) 78%, transparent);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+}
+.chat-input-area {
+  background: color-mix(in srgb, var(--bg-secondary) 82%, transparent);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+}
+
+/* Заголовки с неоновым свечением */
+.sidebar-title, .auth-logo h1 {
+  background: linear-gradient(135deg, var(--text-primary), var(--accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.auth-logo svg { filter: drop-shadow(0 0 14px var(--accent-glow)); }
+
+/* Пузыри сообщений — хвостики */
+.msg-out { border-bottom-right-radius: 5px; }
+.msg-in  { border-bottom-left-radius: 5px; }
+.msg-bubble { transition: transform 0.12s ease; }
+
+/* Тактильные нажатия — всё пружинит при тапе */
+.chat-item:active, .user-item:active,
+.sidebar-tab:active, .folder-tab:active,
+.icon-btn:active, .btn:active, .auth-btn:active,
+.reaction-chip:active, .msg-file:active {
+  transform: scale(0.96);
+  transition: transform 0.08s ease;
+}
+.send-btn:active, .voice-play-btn:active, .call-btn:active {
+  transform: scale(0.9);
+}
+
+/* Пружинные переходы экранов */
+@media (max-width: 760px) {
+  .sidebar, .chat-window, .no-chat {
+    transition: transform 0.32s cubic-bezier(.32,.72,0,1), opacity 0.32s ease;
+  }
+
+  /* Шапки — плотнее стекло на мобиле */
+  .sidebar-header, .chat-header, .chat-input-area {
+    backdrop-filter: blur(22px) saturate(180%);
+    -webkit-backdrop-filter: blur(22px) saturate(180%);
+  }
+
+  /* Крупная неоновая кнопка отправки */
+  .send-btn {
+    width: 48px; height: 48px;
+    box-shadow: 0 0 22px var(--accent-glow);
+  }
+
+  /* Поле ввода — мягкое, скруглённое */
+  .msg-input {
+    background: var(--bg-tertiary);
+    border-radius: 24px;
+    box-shadow: inset 0 0 0 1px var(--border);
+  }
+  .msg-input:focus { box-shadow: inset 0 0 0 1.5px var(--accent); }
+
+  /* Поиск — неоновый фокус */
+  .search-input {
+    background: var(--bg-tertiary);
+    box-shadow: inset 0 0 0 1px var(--border);
+  }
+
+  /* Аватарки в списке — мягкое свечение */
+  .chat-item .avatar, .user-item .avatar {
+    box-shadow: 0 0 14px rgba(0,229,192,0.18);
+  }
+
+  /* Активный чат — неоновая полоса слева */
+  .chat-item.active::before {
+    content: ''; position: absolute; left: 0; top: 8px; bottom: 8px;
+    width: 3px; border-radius: 0 3px 3px 0;
+    background: var(--accent); box-shadow: 0 0 10px var(--accent-glow);
+  }
+
+  /* Табы сайдбара — таблеточный фон */
+  .sidebar-tab { padding: 9px; font-size: 13px; }
+
+  /* Скруглённые крупные тач-цели в шапке */
+  .chat-header { min-height: 60px; }
+
+  /* Плавное появление сообщений */
+  .msg-bubble { animation: msgInMobile 0.26s cubic-bezier(.32,.72,0,1); }
+}
+
+@keyframes msgInMobile {
+  from { opacity: 0; transform: translateY(10px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Неоновая пульсация при записи голоса */
+.voice-record-btn.recording {
+  color: var(--accent);
+  background: var(--bg-active);
+}
+
+/* Свечение активной иконки */
+.active-icon { color: var(--accent); background: var(--bg-active); box-shadow: 0 0 12px var(--accent-glow); }
+
+/* Печатает… — неоновые точки */
+.typing-dot { background: var(--accent); box-shadow: 0 0 6px var(--accent-glow); }
+
+/* OTA-модалка — неоновая кнопка */
+.update-btn {
+  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+  color: var(--accent-ink);
+  box-shadow: 0 0 24px var(--accent-glow);
+}
+.update-btn:hover { background: linear-gradient(135deg, var(--accent-hover), var(--accent)); }
+
+/* Плавный скролл и убираем синюю подсветку тапа */
+* { -webkit-tap-highlight-color: transparent; }
+.chat-list, .messages-wrap, .user-list { scroll-behavior: smooth; }
