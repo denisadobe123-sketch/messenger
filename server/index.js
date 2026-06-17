@@ -59,7 +59,6 @@ app.use((req, res, next) => {
   next();
 });
 app.use('/uploads', express.static(UPLOADS_DIR));
-if (isProd) { app.use(express.static(CLIENT_DIST)); console.log('📦 Раздаём фронтенд из', CLIENT_DIST); }
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOADS_DIR),
@@ -401,6 +400,9 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => { onlineUsers.delete(userId); io.emit('user_status', { userId, online: false }); });
 });
 
-if (isProd) { app.get('*', (req, res) => res.sendFile(path.join(CLIENT_DIST, 'index.html'))); }
+if (isProd) {
+  app.use(express.static(CLIENT_DIST));
+  app.get('*', (req, res) => res.sendFile(path.join(CLIENT_DIST, 'index.html')));
+}
 
 server.listen(PORT, () => console.log(`✅ Сервер запущен на порту ${PORT}`));
