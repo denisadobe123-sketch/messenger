@@ -130,6 +130,23 @@ body {
   color: var(--danger); font-size: 13px; text-align: center;
   background: rgba(229,57,53,0.12); padding: 9px 14px; border-radius: 10px;
 }
+.auth-hint {
+  font-size: 12px; color: var(--text-muted); text-align: center; margin-top: 10px; line-height: 1.5;
+}
+.auth-input-wrap {
+  display: flex; align-items: center; position: relative;
+  background: var(--bg-primary); border: 1.5px solid var(--border);
+  border-radius: 12px; overflow: hidden; transition: border-color 0.2s;
+}
+.auth-input-wrap:focus-within { border-color: var(--accent); }
+.auth-input-prefix {
+  padding: 0 0 0 16px; font-size: 15px; color: var(--accent); font-weight: 700; flex-shrink: 0;
+}
+.auth-input-handle {
+  background: transparent !important; border: none !important; border-radius: 0 !important;
+  padding: 13px 16px 13px 4px !important; flex: 1;
+}
+.auth-input-handle:focus { border: none !important; outline: none; }
 
 /* ── App Layout ──────────────────────────────────── */
 .app-layout { flex: 1; display: flex; height: 100vh; overflow: hidden; }
@@ -229,8 +246,10 @@ body {
 }
 .user-item:hover { background: var(--bg-hover); }
 .user-item.selected { background: rgba(43,127,220,0.2); }
-.user-name { font-size: 15px; font-weight: 500; flex: 1; }
-.user-bio { font-size: 12px; color: var(--text-secondary); }
+.user-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.user-name { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+.user-handle { font-size: 12px; color: var(--accent); opacity: 0.8; }
+.user-bio { font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ── Modal ───────────────────────────────────────── */
 .modal-overlay {
@@ -321,7 +340,8 @@ body {
 }
 .chat-header-info { flex: 1; }
 .chat-header-name { font-weight: 700; font-size: 16px; }
-.chat-header-status { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+.chat-header-handle { font-size: 11px; color: var(--accent); opacity: 0.75; line-height: 1.2; }
+.chat-header-status { font-size: 12px; color: var(--text-secondary); margin-top: 1px; }
 .chat-header-status.online { color: var(--online); }
 .chat-header-status.away   { color: var(--away); }
 .chat-header-status.dnd    { color: var(--dnd); }
@@ -696,6 +716,9 @@ body {
   box-shadow: 0 6px 20px rgba(43,127,220,0.35);
 }
 .profile-page-username { font-size: 17px; font-weight: 700; margin-top: 2px; }
+.profile-page-displayname { font-size: 20px; font-weight: 700; margin-top: 8px; color: var(--text-primary); }
+.profile-page-handle { font-size: 14px; color: var(--accent); margin-top: 2px; margin-bottom: 4px; }
+.profile-handle-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; display: block; }
 
 .profile-page-body { padding: 20px; flex: 1; }
 .profile-divider { height: 1px; background: var(--border); margin: 4px 0 0; }

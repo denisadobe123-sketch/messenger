@@ -5,6 +5,7 @@ import { API_URL as API } from '../api.js';
 export default function Auth({ onAuth }) {
   const [tab, setTab] = useState('login');
   const [username, setUsername] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -14,10 +15,12 @@ export default function Auth({ onAuth }) {
     setError('');
     setLoading(true);
     try {
+      const body = { username, password };
+      if (tab === 'register' && displayName.trim()) body.displayName = displayName.trim();
       const res = await fetch(`${API}/${tab}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
+        body: JSON.stringify(body)
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Ошибка');
@@ -53,14 +56,26 @@ export default function Auth({ onAuth }) {
         </div>
 
         <form className="auth-form" onSubmit={submit}>
-          <input
-            className="auth-input"
-            placeholder="Логин"
-            value={username}
-            onChange={e => setUsername(e.target.value)}
-            required
-            autoFocus
-          />
+          {tab === 'register' && (
+            <input
+              className="auth-input"
+              placeholder="Имя (как тебя будут видеть)"
+              value={displayName}
+              onChange={e => setDisplayName(e.target.value)}
+              autoFocus
+            />
+          )}
+          <div className="auth-input-wrap">
+            <span className="auth-input-prefix">@</span>
+            <input
+              className="auth-input auth-input-handle"
+              placeholder="Логин (только англ. буквы)"
+              value={username}
+              onChange={e => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+              required
+              autoFocus={tab === 'login'}
+            />
+          </div>
           <input
             className="auth-input"
             type="password"
@@ -74,6 +89,10 @@ export default function Auth({ onAuth }) {
             {loading ? 'Загрузка...' : tab === 'login' ? 'Войти' : 'Зарегистрироваться'}
           </button>
         </form>
+
+        {tab === 'register' && (
+          <p className="auth-hint">Логин — твой уникальный @юзернейм для поиска. Имя увидят другие пользователи.</p>
+        )}
       </div>
     </div>
   );

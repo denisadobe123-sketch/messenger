@@ -1,10 +1,13 @@
 import { useState, useRef } from 'react';
 import { API_URL } from '../api.js';
 import { getTheme, toggleTheme } from '../theme.js';
+import { getAvatarColor } from '../avatarColor.js';
 
 const STATUS_LABELS = { online: '🟢 В сети', away: '🟡 Отошёл', dnd: '🔴 Не беспокоить' };
 
 export default function ProfilePage({ user, token, onUpdate, onLogout }) {
+  const [displayName, setDisplayName] = useState(user.displayName || user.username || '');
+  const [handle, setHandle] = useState(user.handle || user.username || '');
   const [bio, setBio] = useState(user.bio || '');
   const [status, setStatus] = useState(user.status || 'online');
   const [currentPassword, setCurrentPassword] = useState('');
@@ -19,17 +22,22 @@ export default function ProfilePage({ user, token, onUpdate, onLogout }) {
   function handleToggleTheme() { setTheme(toggleTheme()); }
   function clear() { setMsg(''); setErr(''); }
 
+  function onHandleChange(v) {
+    setHandle(v.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 32));
+  }
+
   async function saveProfile() {
     clear(); setLoading(true);
     try {
       const res = await fetch(`${API_URL}/profile`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ bio, status })
+        body: JSON.stringify({ bio, status, displayName, handle })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       onUpdate(data);
+      setHandle(data.handle || handle);
       setMsg('Профиль сохранён!');
     } catch (e) { setErr(e.message); }
     finally { setLoading(false); }
@@ -74,18 +82,46 @@ export default function ProfilePage({ user, token, onUpdate, onLogout }) {
     finally { setLoading(false); }
   }
 
+  const initials = (displayName || user.username || '?')[0].toUpperCase();
+  const avatarBg = getAvatarColor(user.username);
+
   return (
     <div className="profile-page">
       <div className="profile-page-header">
-        <div className="avatar lg" onClick={() => fileRef.current?.click()} style={{ cursor: 'pointer' }}>
-          {avatarUrl ? <img src={avatarUrl} alt="avatar" /> : user.username[0].toUpperCase()}
+        <div
+          className="avatar lg"
+          onClick={() => fileRef.current?.click()}
+          style={{ cursor: 'pointer', ...(!avatarUrl ? { background: avatarBg } : {}) }}
+        >
+          {avatarUrl ? <img src={avatarUrl} alt="avatar" /> : initials}
         </div>
         <button className="avatar-upload-btn" onClick={() => fileRef.current?.click()}>Сменить фото</button>
         <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={uploadAvatar} />
-        <div className="profile-page-username">{user.username}</div>
+        <div className="profile-page-displayname">{displayName || user.username}</div>
+        <div className="profile-page-handle">@{handle || user.username}</div>
       </div>
 
       <div className="profile-page-body">
+        <div className="profile-section">
+          <label>Имя (видят другие)</label>
+          <input className="modal-input" placeholder="Твоё имя" value={displayName} onChange={e => setDisplayName(e.target.value)} />
+        </div>
+
+        <div className="profile-section">
+          <label>Юзернейм</label>
+          <div className="auth-input-wrap" style={{ marginBottom: 0 }}>
+            <span className="auth-input-prefix">@</span>
+            <input
+              className="auth-input auth-input-handle"
+              style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 14px', color: 'var(--text-primary)' }}
+              placeholder="username"
+              value={handle}
+              onChange={e => onHandleChange(e.target.value)}
+            />
+          </div>
+          <span className="profile-handle-hint">Другие могут найти тебя по @{handle || '...'}</span>
+        </div>
+
         <div className="profile-section">
           <label>О себе</label>
           <textarea className="modal-input" rows={3} placeholder="Расскажи о себе..." value={bio} onChange={e => setBio(e.target.value)} />

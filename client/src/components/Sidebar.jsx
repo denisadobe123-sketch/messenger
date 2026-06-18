@@ -278,11 +278,12 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
           {users.map(u => (
             <div key={u.id} className="user-item" onClick={() => openPrivateChat(u.id)}>
               <div className="avatar sm" style={!u.avatar ? { background: getAvatarColor(u.username) } : undefined}>
-                {u.avatar ? <img src={u.avatar} alt={u.username} /> : getInitials(u.username)}
+                {u.avatar ? <img src={u.avatar} alt={u.displayName || u.username} /> : getInitials(u.displayName || u.username)}
                 <StatusDot status={userStatuses.get(u.id) || 'online'} online={onlineUsers.has(u.id)} />
               </div>
-              <div>
-                <div className="user-name">{u.username}</div>
+              <div className="user-info">
+                <div className="user-name">{u.displayName || u.username}</div>
+                <div className="user-handle">@{u.handle || u.username}</div>
                 {u.bio && <div className="user-bio">{u.bio}</div>}
               </div>
             </div>

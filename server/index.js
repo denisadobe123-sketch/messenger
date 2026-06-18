@@ -122,7 +122,28 @@ function getBaseUrl(req) {
 }
 
 function safeUser(u) {
-  return { id: u.id, username: u.username, avatar: u.avatar || null, bio: u.bio || null, status: u.status || 'online' };
+  return { id: u.id, username: u.username, handle: u.handle || u.username,
+    displayName: u.displayName || u.username,
+    avatar: u.avatar || null, bio: u.bio || null, status: u.status || 'online', lastSeen: u.lastSeen || null };
+}
+
+function generateHandle(base) {
+  // strip non-alphanum, lowercase, max 32 chars
+  return base.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 32) || 'user' + Date.now().toString().slice(-6);
+}
+
+function isHandleTaken(handle, excludeId) {
+  return DB.users.some(u => u.id !== excludeId && (u.handle || u.username).toLowerCase() === handle.toLowerCase());
+}
+
+// Системное сообщение в группе («X добавил Y», «X вышел» и т.п.)
+function pushSystemMessage(chatId, text) {
+  const msg = { id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+    chatId, system: true, text, senderId: null, senderName: null,
+    reactions: [], edited: false, deleted: false, createdAt: new Date().toISOString(), readBy: [] };
+  DB.messages.push(msg);
+  io.to(chatId).emit('new_message', msg);
+  return msg;
 }
 
 // ── FCM Push ──────────────────────────────────────────────────────────────────
@@ -154,13 +175,19 @@ app.get('/version', (req, res) => {
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 app.post('/register', async (req, res) => {
-  const { username, password } = req.body;
+  const { username, password, displayName } = req.body;
   if (!username?.trim() || !password) return res.status(400).json({ error: 'Введите логин и пароль' });
   if (password.length < 6) return res.status(400).json({ error: 'Пароль минимум 6 символов' });
   const db = DB;
-  if (db.users.find(u => u.username === username.trim()))
+  const uname = username.trim();
+  if (db.users.find(u => u.username === uname))
     return res.status(400).json({ error: 'Логин уже занят' });
-  const user = { id: Date.now().toString(), username: username.trim(),
+  // auto-generate unique handle from username
+  let handle = generateHandle(uname);
+  let suffix = 1;
+  while (isHandleTaken(handle, null)) handle = generateHandle(uname) + suffix++;
+  const user = { id: Date.now().toString(), username: uname,
+    handle, displayName: (displayName || '').trim() || uname,
     password: await bcrypt.hash(password, 10), avatar: null, bio: null, status: 'online', createdAt: new Date().toISOString() };
   db.users.push(user);
   saveDB();
@@ -187,12 +214,19 @@ app.get('/profile', authMiddleware, (req, res) => {
 });
 
 app.put('/profile', authMiddleware, (req, res) => {
-  const { bio, status } = req.body;
+  const { bio, status, displayName, handle } = req.body;
   const db = DB;
   const user = db.users.find(u => u.id === req.user.id);
   if (!user) return res.status(404).json({ error: 'Не найден' });
   if (bio !== undefined) user.bio = bio;
   if (status !== undefined) user.status = status;
+  if (displayName !== undefined) user.displayName = displayName.trim() || user.displayName;
+  if (handle !== undefined) {
+    const clean = handle.replace(/^@/, '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 32);
+    if (!clean) return res.status(400).json({ error: 'Недопустимый юзернейм' });
+    if (isHandleTaken(clean, user.id)) return res.status(400).json({ error: 'Этот @' + clean + ' уже занят' });
+    user.handle = clean;
+  }
   saveDB();
   io.emit('user_profile_updated', safeUser(user));
   res.json(safeUser(user));
@@ -245,8 +279,21 @@ app.delete('/fcm-token', authMiddleware, (req, res) => {
 // ── Users ─────────────────────────────────────────────────────────────────────
 app.get('/users', authMiddleware, (req, res) => {
   const db = DB;
-  const q = (req.query.q || '').toLowerCase();
-  res.json(db.users.filter(u => u.id !== req.user.id && u.username.toLowerCase().includes(q)).map(safeUser));
+  let q = (req.query.q || '').toLowerCase().replace(/^@/, '');
+  res.json(db.users.filter(u => {
+    if (u.id === req.user.id) return false;
+    if (!q) return true;
+    return (u.handle || u.username).toLowerCase().includes(q)
+      || (u.displayName || u.username).toLowerCase().includes(q)
+      || u.username.toLowerCase().includes(q);
+  }).map(safeUser));
+});
+
+app.get('/users/by-handle/:handle', authMiddleware, (req, res) => {
+  const handle = req.params.handle.replace(/^@/, '').toLowerCase();
+  const user = DB.users.find(u => (u.handle || u.username).toLowerCase() === handle);
+  if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
+  res.json(safeUser(user));
 });
 
 // ── Chats ─────────────────────────────────────────────────────────────────────
@@ -261,9 +308,11 @@ app.get('/chats', authMiddleware, (req, res) => {
     if (chat.type === 'private') {
       const otherId = chat.members.find(id => id !== req.user.id);
       otherUser = db.users.find(u => u.id === otherId);
-      displayName = otherUser?.username || 'Неизвестный';
+      displayName = otherUser?.displayName || otherUser?.username || 'Неизвестный';
     }
-    return { ...chat, displayName, lastMessage, unread, otherUserAvatar: otherUser?.avatar || null };
+    return { ...chat, displayName, lastMessage, unread, otherUserAvatar: otherUser?.avatar || null,
+      otherUserId: otherUser?.id || null, otherUserStatus: otherUser?.status || null, otherUserLastSeen: otherUser?.lastSeen || null,
+      otherUserHandle: otherUser?.handle || otherUser?.username || null };
   });
   res.json(enriched.sort((a, b) => {
     const aT = a.lastMessage ? new Date(a.lastMessage.createdAt) : new Date(a.createdAt);
@@ -440,6 +489,92 @@ io.on('connection', (socket) => {
     io.to(msg.chatId).emit('reaction_updated', { messageId, reactions: msg.reactions });
   });
 
+  // ── Управление чатами ──────────────────────────────────────────
+  socket.on('delete_chat', ({ chatId }) => {
+    const db = DB;
+    const chat = db.chats.find(c => c.id === chatId);
+    if (!chat || !chat.members.includes(userId)) return;
+    db.chats = db.chats.filter(c => c.id !== chatId);
+    db.messages = db.messages.filter(m => m.chatId !== chatId);
+    saveDB();
+    io.to(chatId).emit('chat_deleted', { chatId });
+    io.socketsLeave(chatId);
+  });
+
+  socket.on('clear_history', ({ chatId }) => {
+    const db = DB;
+    const chat = db.chats.find(c => c.id === chatId);
+    if (!chat || !chat.members.includes(userId)) return;
+    db.messages = db.messages.filter(m => m.chatId !== chatId);
+    if (chat.pinnedMessageId) chat.pinnedMessageId = null;
+    saveDB();
+    io.to(chatId).emit('history_cleared', { chatId });
+  });
+
+  // ── Управление группами ────────────────────────────────────────
+  socket.on('rename_chat', ({ chatId, name }) => {
+    const db = DB;
+    const chat = db.chats.find(c => c.id === chatId);
+    if (!chat || chat.type !== 'group' || !chat.members.includes(userId) || !name?.trim()) return;
+    chat.name = name.trim();
+    saveDB();
+    io.to(chatId).emit('chat_updated', chat);
+    pushSystemMessage(chatId, `${socket.user.username} переименовал(а) группу в «${chat.name}»`);
+  });
+
+  socket.on('leave_chat', ({ chatId }) => {
+    const db = DB;
+    const chat = db.chats.find(c => c.id === chatId);
+    if (!chat || chat.type !== 'group' || !chat.members.includes(userId)) return;
+    chat.members = chat.members.filter(id => id !== userId);
+    socket.leave(chatId);
+    socket.emit('chat_deleted', { chatId });
+    if (chat.members.length === 0) {
+      db.chats = db.chats.filter(c => c.id !== chatId);
+      db.messages = db.messages.filter(m => m.chatId !== chatId);
+      saveDB();
+      return;
+    }
+    saveDB();
+    io.to(chatId).emit('chat_updated', chat);
+    pushSystemMessage(chatId, `${socket.user.username} вышел(а) из группы`);
+  });
+
+  socket.on('add_members', ({ chatId, userIds }) => {
+    const db = DB;
+    const chat = db.chats.find(c => c.id === chatId);
+    if (!chat || chat.type !== 'group' || !chat.members.includes(userId) || !Array.isArray(userIds)) return;
+    const added = [];
+    for (const uid of userIds) {
+      if (!chat.members.includes(uid) && db.users.find(u => u.id === uid)) {
+        chat.members.push(uid); added.push(uid);
+      }
+    }
+    if (!added.length) return;
+    saveDB();
+    added.forEach(uid => { joinUserToChat(uid, chatId); emitToUser(uid, 'new_chat', chat); });
+    io.to(chatId).emit('chat_updated', chat);
+    const names = added.map(uid => db.users.find(u => u.id === uid)?.username).filter(Boolean).join(', ');
+    pushSystemMessage(chatId, `${socket.user.username} добавил(а): ${names}`);
+  });
+
+  socket.on('remove_member', ({ chatId, userId: targetId }) => {
+    const db = DB;
+    const chat = db.chats.find(c => c.id === chatId);
+    if (!chat || chat.type !== 'group' || !chat.members.includes(userId)) return;
+    if (userId !== chat.createdBy) return; // убирать других может только создатель
+    if (targetId === chat.createdBy) return;
+    if (!chat.members.includes(targetId)) return;
+    const targetName = db.users.find(u => u.id === targetId)?.username || 'участник';
+    chat.members = chat.members.filter(id => id !== targetId);
+    saveDB();
+    emitToUser(targetId, 'chat_deleted', { chatId });
+    const set = onlineUsers.get(targetId);
+    if (set) for (const sid of set) io.sockets.sockets.get(sid)?.leave(chatId);
+    io.to(chatId).emit('chat_updated', chat);
+    pushSystemMessage(chatId, `${socket.user.username} удалил(а) ${targetName} из группы`);
+  });
+
   socket.on('set_status', ({ status }) => {
     const db = DB;
     const user = db.users.find(u => u.id === userId);
@@ -470,7 +605,12 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     const wentOffline = removeOnline(userId, socket.id);
-    if (wentOffline) io.emit('user_status', { userId, online: false });
+    if (wentOffline) {
+      const u = DB.users.find(x => x.id === userId);
+      const lastSeen = new Date().toISOString();
+      if (u) { u.lastSeen = lastSeen; saveDB(); }
+      io.emit('user_status', { userId, online: false, lastSeen });
+    }
   });
 });
 

@@ -420,6 +420,9 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
           onClick={() => chat.type === 'group' && setShowGroupInfo(true)}
         >
           <div className="chat-header-name">{chat.displayName || chat.name}</div>
+          {chat.type === 'private' && chat.otherUserHandle && (
+            <div className="chat-header-handle">@{chat.otherUserHandle}</div>
+          )}
           <div className={`chat-header-status ${isOnline ? otherStatus : ''}`}>{statusLabel}</div>
         </div>
         {chat.type === 'private' && (
