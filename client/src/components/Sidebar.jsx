@@ -172,7 +172,7 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
   return (
     <div className="sidebar">
       <div className="sidebar-header">
-        <span className="sidebar-title">Messenger</span>
+        <span className="sidebar-title">Nexora</span>
         <button className="icon-btn mesh-btn" onClick={onOpenMesh} title="Mesh — без интернета">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/>

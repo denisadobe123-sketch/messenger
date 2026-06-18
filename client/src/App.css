@@ -71,10 +71,45 @@ body {
 .auth-wrapper {
   flex: 1; display: flex; align-items: center; justify-content: center;
   background: var(--bg-primary);
-  background-image:
-    radial-gradient(ellipse at 70% 20%, rgba(0,229,192,0.12) 0%, transparent 55%),
-    radial-gradient(ellipse at 20% 90%, rgba(0,229,192,0.06) 0%, transparent 50%);
+  position: relative; overflow: hidden;
 }
+.auth-wrapper::before {
+  content: '';
+  position: absolute; inset: -50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0%,
+    rgba(0,229,192,0.07) 15%,
+    rgba(0,180,160,0.12) 30%,
+    rgba(92,255,230,0.08) 45%,
+    transparent 60%,
+    rgba(0,229,192,0.05) 75%,
+    rgba(0,180,160,0.10) 90%,
+    transparent 100%
+  );
+  animation: gradientSpin 12s linear infinite;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.auth-wrapper::after {
+  content: '';
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(ellipse at 70% 20%, rgba(0,229,192,0.10) 0%, transparent 50%),
+    radial-gradient(ellipse at 20% 80%, rgba(92,255,230,0.07) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 50%, rgba(0,229,192,0.04) 0%, transparent 70%);
+  animation: gradientPulse 6s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+@keyframes gradientSpin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+@keyframes gradientPulse {
+  from { opacity: 0.6; transform: scale(1); }
+  to   { opacity: 1;   transform: scale(1.08); }
+}
+.auth-box { position: relative; z-index: 1; }
 
 .auth-box {
   background: var(--bg-secondary);

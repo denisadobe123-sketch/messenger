@@ -21,9 +21,9 @@ self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
 self.addEventListener('push', e => {
   if (!e.data) return;
   let data;
-  try { data = e.data.json(); } catch { data = { title: 'Messenger', body: e.data.text() }; }
+  try { data = e.data.json(); } catch { data = { title: 'Nexora', body: e.data.text() }; }
 
-  e.waitUntil(self.registration.showNotification(data.title || 'Messenger', {
+  e.waitUntil(self.registration.showNotification(data.title || 'Nexora', {
     body: data.body || '',
     icon: data.icon || '/icon-192.png',
     badge: '/icon-192.png',
@@ -141,7 +141,7 @@ async function flushQueue() {
     // Show notification if app is not focused
     const focused = clients.some(c => c.focused);
     if (!focused) {
-      await self.registration.showNotification('Messenger', {
+      await self.registration.showNotification('Nexora', {
         body: `${sent.length} сообщ. отправлено`,
         icon: '/icon-192.png',
         tag: 'queue-flush',

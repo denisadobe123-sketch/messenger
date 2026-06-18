@@ -84,7 +84,7 @@ export default function Auth({ onAuth }) {
               <path d="M14 32 L26 44 L50 20" stroke="white" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </div>
-          <h1>Messenger</h1>
+          <h1>Nexora</h1>
         </div>
 
         {/* ── STEP 1: Phone ── */}
