@@ -1065,12 +1065,17 @@ body {
   -webkit-backdrop-filter: blur(18px) saturate(160%);
 }
 
-/* Заголовки с неоновым свечением */
+/* Заголовки с неоновым свечением + переливание */
 .sidebar-title, .auth-logo h1 {
-  background: linear-gradient(135deg, var(--text-primary), var(--accent));
+  background: linear-gradient(90deg, var(--text-primary) 0%, var(--accent) 30%, #5cffe6 50%, var(--accent) 70%, var(--text-primary) 100%);
+  background-size: 250% auto;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
+  animation: shimmerTitle 5s linear infinite;
+}
+@keyframes shimmerTitle {
+  to { background-position: -250% center; }
 }
 .auth-logo svg { filter: drop-shadow(0 0 14px var(--accent-glow)); }
 
@@ -1202,3 +1207,65 @@ body {
 /* ── Mute ── */
 .chat-muted-icon { font-size: 12px; opacity: 0.6; }
 .unread-badge.muted { background: var(--text-muted); box-shadow: none; color: var(--bg-primary); }
+
+/* ── Свайп между вкладками ── */
+.sidebar-swipe {
+  flex: 1; display: flex; flex-direction: column; overflow: hidden;
+  will-change: transform;
+}
+.sidebar-swipe.slide-in-left { animation: slideInLeft 0.28s cubic-bezier(.32,.72,0,1); }
+.sidebar-swipe.slide-in-right { animation: slideInRight 0.28s cubic-bezier(.32,.72,0,1); }
+@keyframes slideInLeft {
+  from { opacity: 0.4; transform: translateX(40px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes slideInRight {
+  from { opacity: 0.4; transform: translateX(-40px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* ── Подвижный индикатор активной вкладки ── */
+.sidebar-tabs { position: relative; }
+.sidebar-tab-indicator {
+  position: absolute; bottom: 2px; left: 12px;
+  width: calc((100% - 24px) / 3); height: 3px; border-radius: 3px;
+  background: var(--accent); box-shadow: 0 0 10px var(--accent-glow);
+  transition: transform 0.28s cubic-bezier(.32,.72,0,1);
+  pointer-events: none;
+}
+.sidebar-tab { position: relative; z-index: 1; }
+
+/* ── Телеграм-полировка размеров на телефоне ── */
+@media (max-width: 760px) {
+  .sidebar-title { font-size: 22px; letter-spacing: 0.3px; }
+  .sidebar-header { padding: 14px 16px; min-height: 56px; }
+  .sidebar-tab { padding: 11px 6px; font-size: 14px; }
+  .search-input { padding: 11px 14px 11px 38px; font-size: 16px !important; border-radius: 12px; }
+  .search-bar { padding: 8px 14px; }
+
+  /* Список чатов — крупнее и просторнее, как в ТГ */
+  .chat-item { padding: 11px 14px; gap: 13px; }
+  .chat-item .avatar { width: 52px; height: 52px; font-size: 20px; }
+  .chat-name { font-size: 16px; }
+  .chat-preview { font-size: 14px; margin-top: 3px; }
+  .chat-time { font-size: 12px; }
+  .user-item { padding: 12px 14px; gap: 13px; }
+  .user-item .avatar.sm { width: 48px; height: 48px; font-size: 18px; }
+  .user-name { font-size: 16px; }
+
+  /* Шапка чата — крупнее */
+  .chat-header-name { font-size: 17px; }
+  .chat-header-status { font-size: 13px; }
+  .chat-header .avatar { width: 42px !important; height: 42px !important; font-size: 16px !important; }
+
+  /* Сообщения — чуть крупнее текст, удобнее читать */
+  .msg-text { font-size: 15.5px; line-height: 1.45; }
+  .msg-bubble { padding: 8px 13px; border-radius: 18px; }
+  .msg-out { border-bottom-right-radius: 6px; }
+  .msg-in { border-bottom-left-radius: 6px; }
+
+  /* Футер сайдбара крупнее */
+  .sidebar-footer { padding: 12px 14px; gap: 13px; }
+  .sidebar-footer .avatar.sm { width: 46px; height: 46px; font-size: 18px; }
+  .sidebar-footer .name { font-size: 16px; }
+}

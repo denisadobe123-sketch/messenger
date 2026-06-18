@@ -65,9 +65,6 @@ export default function ChatItem({
         className={`chat-item ${isActive ? 'active' : ''}`}
         style={{ transform: `translateX(${dragX}px)` }}
         onClick={() => onSelect(chat)}
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
       >
         <div className={`avatar ${chat.type === 'group' ? 'group' : ''}`} style={avatarColor ? { background: avatarColor } : undefined}>
           {otherAvatar && chat.type === 'private'

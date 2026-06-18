@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { API_URL } from '../api.js';
 import { getAvatarColor } from '../avatarColor.js';
 import ProfilePage from './ProfilePage.jsx';
@@ -31,8 +31,46 @@ function usePersistedState(key, initial) {
   return [value, setValue];
 }
 
+const TABS = ['chats', 'users', 'profile'];
+
 export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses, userProfiles, selectedChat, onSelectChat, onNewChat, mutedChats, onToggleMute, token, onProfileUpdate, onLogout }) {
   const [tab, setTab] = useState('chats');
+  const [dragX, setDragX] = useState(0);
+  const [slideAnim, setSlideAnim] = useState('');
+  const swipe = useRef({ x: 0, y: 0, dx: 0, active: false });
+
+  function switchTab(next, dir) {
+    if (next === tab) return;
+    setTab(next); setSearch('');
+    setSlideAnim(dir === 'left' ? 'slide-in-left' : 'slide-in-right');
+    setTimeout(() => setSlideAnim(''), 280);
+  }
+
+  function onContentTouchStart(e) {
+    const t = e.touches[0];
+    swipe.current = { x: t.clientX, y: t.clientY, dx: 0, active: true };
+  }
+  function onContentTouchMove(e) {
+    if (!swipe.current.active) return;
+    const t = e.touches[0];
+    const dx = t.clientX - swipe.current.x;
+    const dy = t.clientY - swipe.current.y;
+    if (Math.abs(dx) < Math.abs(dy)) { swipe.current.active = false; setDragX(0); return; }
+    swipe.current.dx = dx;
+    const idx = TABS.indexOf(tab);
+    // лёгкое сопротивление на краях
+    const atEdge = (dx > 0 && idx === 0) || (dx < 0 && idx === TABS.length - 1);
+    setDragX(dx * (atEdge ? 0.18 : 0.4));
+  }
+  function onContentTouchEnd() {
+    const { dx, active } = swipe.current;
+    swipe.current.active = false;
+    setDragX(0);
+    if (!active) return;
+    const idx = TABS.indexOf(tab);
+    if (dx < -55 && idx < TABS.length - 1) switchTab(TABS[idx + 1], 'left');
+    else if (dx > 55 && idx > 0) switchTab(TABS[idx - 1], 'right');
+  }
   const [search, setSearch] = useState('');
   const [users, setUsers] = useState([]);
   const [showGroup, setShowGroup] = useState(false);
@@ -156,9 +194,10 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
       )}
 
       <div className="sidebar-tabs">
-        <button className={`sidebar-tab ${tab === 'chats' ? 'active' : ''}`} onClick={() => { setTab('chats'); setSearch(''); }}>Чаты</button>
-        <button className={`sidebar-tab ${tab === 'users' ? 'active' : ''}`} onClick={() => { setTab('users'); setSearch(''); }}>Люди</button>
-        <button className={`sidebar-tab ${tab === 'profile' ? 'active' : ''}`} onClick={() => { setTab('profile'); setSearch(''); }}>Профиль</button>
+        <button className={`sidebar-tab ${tab === 'chats' ? 'active' : ''}`} onClick={() => switchTab('chats', TABS.indexOf('chats') > TABS.indexOf(tab) ? 'left' : 'right')}>Чаты</button>
+        <button className={`sidebar-tab ${tab === 'users' ? 'active' : ''}`} onClick={() => switchTab('users', TABS.indexOf('users') > TABS.indexOf(tab) ? 'left' : 'right')}>Люди</button>
+        <button className={`sidebar-tab ${tab === 'profile' ? 'active' : ''}`} onClick={() => switchTab('profile', TABS.indexOf('profile') > TABS.indexOf(tab) ? 'left' : 'right')}>Профиль</button>
+        <div className="sidebar-tab-indicator" style={{ transform: `translateX(${TABS.indexOf(tab) * 100}%)` }} />
       </div>
 
       {tab === 'chats' && (
@@ -178,6 +217,13 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
         </div>
       )}
 
+      <div
+        className={`sidebar-swipe ${slideAnim}`}
+        style={dragX ? { transform: `translateX(${dragX}px)` } : undefined}
+        onTouchStart={onContentTouchStart}
+        onTouchMove={onContentTouchMove}
+        onTouchEnd={onContentTouchEnd}
+      >
       {tab === 'profile' ? (
         <ProfilePage user={currentUser} token={token} onUpdate={onProfileUpdate} onLogout={onLogout} />
       ) : tab === 'chats' ? (
@@ -242,9 +288,10 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
           ))}
         </div>
       )}
+      </div>
 
       {tab !== 'profile' && (
-        <div className="sidebar-footer" onClick={() => setTab('profile')}>
+        <div className="sidebar-footer" onClick={() => switchTab('profile', 'left')}>
           <div className="avatar sm" style={!currentUser.avatar ? { background: getAvatarColor(currentUser.username) } : undefined}>
             {currentUser.avatar ? <img src={currentUser.avatar} alt={currentUser.username} /> : getInitials(currentUser.username)}
             <StatusDot status={myStatus} online={true} />
