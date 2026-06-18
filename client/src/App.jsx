@@ -47,10 +47,25 @@ export default function App() {
   const [selectedChat, setSelectedChat] = useState(null);
   const [onlineUsers, setOnlineUsers] = useState(new Set());
   const [userStatuses, setUserStatuses] = useState(new Map());
+  const [userLastSeen, setUserLastSeen] = useState(new Map());
   const [userProfiles, setUserProfiles] = useState(new Map());
   const [activeCall, setActiveCall] = useState(null);
   const [toasts, setToasts] = useState([]);
+  const [mutedChats, setMutedChats] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('mutedChats') || '[]')); } catch { return new Set(); }
+  });
   const selectedChatRef = useRef(null);
+  const mutedRef = useRef(mutedChats);
+
+  function toggleMute(chatId) {
+    setMutedChats(prev => {
+      const n = new Set(prev);
+      n.has(chatId) ? n.delete(chatId) : n.add(chatId);
+      localStorage.setItem('mutedChats', JSON.stringify([...n]));
+      mutedRef.current = n;
+      return n;
+    });
+  }
 
   function pushToast(toast) {
     setToasts(prev => [...prev, { id: Date.now() + Math.random(), ...toast }]);
@@ -78,8 +93,21 @@ export default function App() {
       setActiveCall(null);
     });
 
-    socket.on('user_status', ({ userId, online }) => {
+    socket.on('user_status', ({ userId, online, lastSeen }) => {
       setOnlineUsers(prev => { const n = new Set(prev); online ? n.add(userId) : n.delete(userId); return n; });
+      if (lastSeen) setUserLastSeen(prev => new Map(prev).set(userId, lastSeen));
+    });
+
+    socket.on('chat_deleted', ({ chatId }) => {
+      setChats(prev => prev.filter(c => c.id !== chatId));
+      setSelectedChat(prev => (prev?.id === chatId ? null : prev));
+    });
+
+    socket.on('chat_updated', (updated) => {
+      setChats(prev => prev.map(c => c.id === updated.id
+        ? { ...c, ...updated, displayName: updated.type === 'group' ? updated.name : c.displayName } : c));
+      setSelectedChat(prev => (prev?.id === updated.id
+        ? { ...prev, ...updated, displayName: updated.type === 'group' ? updated.name : prev.displayName } : prev));
     });
 
     socket.on('user_status_detail', ({ userId, status }) => {
@@ -107,7 +135,7 @@ export default function App() {
         return bT - aT;
       }));
 
-      if (!isActive && msg.senderId !== user.id) {
+      if (!isActive && msg.senderId !== user.id && !msg.system && !mutedRef.current.has(msg.chatId)) {
         playNotificationSound();
         const body = msg.sticker || msg.text || (msg.voice ? '🎤 Голосовое' : '📎 Файл');
         showBrowserNotification(msg.senderName, body);
@@ -191,6 +219,8 @@ export default function App() {
         selectedChat={selectedChat}
         onSelectChat={handleSelectChat}
         onNewChat={handleNewChat}
+        mutedChats={mutedChats}
+        onToggleMute={toggleMute}
         token={token}
         onProfileUpdate={handleProfileUpdate}
         onLogout={handleLogout}
@@ -201,6 +231,7 @@ export default function App() {
         currentUser={user}
         onlineUsers={onlineUsers}
         userStatuses={userStatuses}
+        userLastSeen={userLastSeen}
         token={token}
         onStartCall={handleStartCall}
         onBack={() => setSelectedChat(null)}

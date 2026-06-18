@@ -29,8 +29,8 @@ function StatusDot({ status, online }) {
 const SWIPE_THRESHOLD = 70;
 
 export default function ChatItem({
-  chat, currentUser, isActive, isOnline, otherStatus, otherAvatar, isPinned, isArchived,
-  onSelect, onArchive, onTogglePin, menuOpen, onToggleMenu
+  chat, currentUser, isActive, isOnline, otherStatus, otherAvatar, isPinned, isArchived, isMuted,
+  onSelect, onArchive, onTogglePin, onToggleMute, menuOpen, onToggleMenu
 }) {
   const [dragX, setDragX] = useState(0);
   const startXRef = useRef(0);
@@ -84,7 +84,8 @@ export default function ChatItem({
         </div>
         <div className="chat-meta">
           <span className="chat-time">{formatTime(chat.lastMessage?.createdAt || chat.createdAt)}</span>
-          {chat.unread > 0 && <span className="unread-badge">{chat.unread}</span>}
+          {isMuted && <span className="chat-muted-icon" title="Без звука">🔕</span>}
+          {chat.unread > 0 && <span className={`unread-badge ${isMuted ? 'muted' : ''}`}>{chat.unread}</span>}
         </div>
         <div className="chat-item-menu-wrap">
           <button className="chat-item-menu-btn" onClick={e => { e.stopPropagation(); onToggleMenu(chat.id); }}>⋯</button>
@@ -92,6 +93,9 @@ export default function ChatItem({
             <div className="msg-context-menu chat-item-menu" onClick={e => e.stopPropagation()}>
               <button className="msg-context-item" onClick={() => onTogglePin(chat.id)}>
                 {isPinned ? '📌 Открепить' : '📌 Закрепить'}
+              </button>
+              <button className="msg-context-item" onClick={() => { onToggleMute?.(chat.id); onToggleMenu(chat.id); }}>
+                {isMuted ? '🔔 Включить звук' : '🔕 Без звука'}
               </button>
               <button className="msg-context-item" onClick={() => onArchive(chat.id)}>
                 {isArchived ? '📤 Вернуть из архива' : '📥 Архивировать'}

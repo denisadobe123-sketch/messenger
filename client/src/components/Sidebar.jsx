@@ -31,7 +31,7 @@ function usePersistedState(key, initial) {
   return [value, setValue];
 }
 
-export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses, userProfiles, selectedChat, onSelectChat, onNewChat, token, onProfileUpdate, onLogout }) {
+export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses, userProfiles, selectedChat, onSelectChat, onNewChat, mutedChats, onToggleMute, token, onProfileUpdate, onLogout }) {
   const [tab, setTab] = useState('chats');
   const [search, setSearch] = useState('');
   const [users, setUsers] = useState([]);
@@ -207,9 +207,11 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
                 otherAvatar={chat.otherUserAvatar || otherProfile?.avatar}
                 isPinned={pinnedIds.includes(chat.id)}
                 isArchived={archivedIds.includes(chat.id)}
+                isMuted={mutedChats?.has(chat.id)}
                 onSelect={onSelectChat}
                 onArchive={toggleArchive}
                 onTogglePin={togglePin}
+                onToggleMute={onToggleMute}
                 menuOpen={chatMenuId === chat.id}
                 onToggleMenu={id => setChatMenuId(p => p === id ? null : id)}
               />

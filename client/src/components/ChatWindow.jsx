@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Fragment } from 'react';
 import MessageItem from './MessageItem.jsx';
 import StickerPicker from './StickerPicker.jsx';
 import { getSocket } from '../socket.js';
@@ -6,6 +6,18 @@ import { API_URL } from '../api.js';
 import { tap } from '../native.js';
 
 const STATUS_LABELS = { online: 'В сети', away: 'Отошёл', dnd: 'Не беспокоить', offline: 'Не в сети' };
+
+function formatLastSeen(iso) {
+  if (!iso) return 'не в сети';
+  const d = new Date(iso), now = new Date();
+  const diff = now - d;
+  const time = d.toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
+  if (diff < 60000) return 'был(а) только что';
+  if (diff < 86400000 && d.getDate() === now.getDate()) return `был(а) в сети в ${time}`;
+  const yest = new Date(now); yest.setDate(now.getDate() - 1);
+  if (d.getDate() === yest.getDate() && diff < 172800000) return `был(а) вчера в ${time}`;
+  return `был(а) ${d.toLocaleDateString('ru', { day: '2-digit', month: '2-digit' })}`;
+}
 
 function groupByDay(messages) {
   const groups = [];
@@ -18,7 +30,7 @@ function groupByDay(messages) {
   return groups;
 }
 
-export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuses, token, onStartCall, onBack, chats }) {
+export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuses, userLastSeen, token, onStartCall, onBack, chats }) {
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const [fileToSend, setFileToSend] = useState(null);
@@ -37,6 +49,9 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   const [selectMode, setSelectMode] = useState(false);
   const [forwardingMsg, setForwardingMsg] = useState(null);
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const [showHeaderMenu, setShowHeaderMenu] = useState(false);
+  const [showGroupInfo, setShowGroupInfo] = useState(false);
+  const [firstUnreadId, setFirstUnreadId] = useState(null);
   const dragCounter = useRef(0);
 
   const [recording, setRecording] = useState(false);
@@ -57,10 +72,19 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     setReplyingTo(null); setEditingMsg(null); setShowSearch(false); setSearchQuery(''); setSearchResults([]);
     setPinnedMessageId(chat.pinnedMessageId || null);
     setSelectMode(false); setSelectedIds(new Set());
+    setShowHeaderMenu(false); setShowGroupInfo(false);
 
+    const unreadCount = chat.unread || 0;
     fetch(`${API_URL}/messages/${chat.id}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
-      .then(msgs => { setMessages(msgs); setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50); })
+      .then(msgs => {
+        setMessages(msgs);
+        if (unreadCount > 0) {
+          const incoming = msgs.filter(m => m.senderId !== currentUser.id && !m.system);
+          setFirstUnreadId(incoming[incoming.length - unreadCount]?.id || null);
+        } else setFirstUnreadId(null);
+        setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+      })
       .catch(() => {});
 
     if (socket) { socket.emit('join_chat', chat.id); socket.emit('read_messages', { chatId: chat.id }); }
@@ -95,8 +119,12 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
       if (chatId !== chat?.id) return;
       setTypingUsers(prev => { const n = new Map(prev); n.delete(userId); return n; });
     }
+    function onHistoryCleared({ chatId }) {
+      if (chatId === chat?.id) { setMessages([]); setPinnedMessageId(null); }
+    }
 
     socket.on('new_message', onMessage);
+    socket.on('history_cleared', onHistoryCleared);
     socket.on('reaction_updated', onReaction);
     socket.on('message_edited', onEdited);
     socket.on('message_deleted', onDeleted);
@@ -105,6 +133,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     socket.on('stop_typing', onStopTyping);
     return () => {
       socket.off('new_message', onMessage);
+      socket.off('history_cleared', onHistoryCleared);
       socket.off('reaction_updated', onReaction);
       socket.off('message_edited', onEdited);
       socket.off('message_deleted', onDeleted);
@@ -212,6 +241,33 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     setSelectMode(false); setSelectedIds(new Set());
   }
 
+  // ── Управление чатом / группой ───────────────────────────────────────────
+  function handleDeleteChat() {
+    setShowHeaderMenu(false);
+    const label = chat.type === 'group' ? 'Удалить группу для всех?' : 'Удалить чат и всю переписку?';
+    if (!confirm(label)) return;
+    socket?.emit('delete_chat', { chatId: chat.id });
+  }
+  function handleClearHistory() {
+    setShowHeaderMenu(false);
+    if (!confirm('Очистить всю историю сообщений?')) return;
+    socket?.emit('clear_history', { chatId: chat.id });
+  }
+  function handleLeaveGroup() {
+    setShowGroupInfo(false);
+    if (!confirm('Выйти из группы?')) return;
+    socket?.emit('leave_chat', { chatId: chat.id });
+  }
+  function handleRenameGroup(name) {
+    if (name?.trim() && name.trim() !== chat.name) socket?.emit('rename_chat', { chatId: chat.id, name: name.trim() });
+  }
+  function handleAddMembers(userIds) {
+    if (userIds?.length) socket?.emit('add_members', { chatId: chat.id, userIds });
+  }
+  function handleRemoveMember(userId) {
+    if (confirm('Удалить участника из группы?')) socket?.emit('remove_member', { chatId: chat.id, userId });
+  }
+
   function scrollToMessage(messageId) {
     const el = document.getElementById(`msg-${messageId}`);
     if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); setHighlightedId(messageId); setTimeout(() => setHighlightedId(null), 1500); }
@@ -290,7 +346,10 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   const otherId = chat?.type === 'private' ? chat.members?.find(id => id !== currentUser.id) : null;
   const isOnline = otherId ? onlineUsers.has(otherId) : false;
   const otherStatus = otherId ? (userStatuses?.get(otherId) || (isOnline ? 'online' : 'offline')) : 'online';
-  const statusLabel = chat?.type === 'group' ? `${chat.members?.length || 0} участников` : STATUS_LABELS[isOnline ? otherStatus : 'offline'];
+  const lastSeenIso = otherId ? (userLastSeen?.get(otherId) || chat?.otherUserLastSeen) : null;
+  const statusLabel = chat?.type === 'group'
+    ? `${chat.members?.length || 0} участников`
+    : (isOnline ? STATUS_LABELS[otherStatus] : formatLastSeen(lastSeenIso));
 
   if (!chat) {
     return (
@@ -317,11 +376,19 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
             <polyline points="15 18 9 12 15 6"/>
           </svg>
         </button>
-        <div className={`avatar ${chat.type === 'group' ? 'group' : ''}`} style={{ width: 38, height: 38, fontSize: 15 }}>
+        <div
+          className={`avatar ${chat.type === 'group' ? 'group' : ''}`}
+          style={{ width: 38, height: 38, fontSize: 15, cursor: chat.type === 'group' ? 'pointer' : 'default' }}
+          onClick={() => chat.type === 'group' && setShowGroupInfo(true)}
+        >
           {(chat.displayName || '?')[0].toUpperCase()}
           {chat.type === 'private' && <span className={`status-dot ${isOnline ? otherStatus : 'offline'}`} />}
         </div>
-        <div className="chat-header-info">
+        <div
+          className="chat-header-info"
+          style={{ cursor: chat.type === 'group' ? 'pointer' : 'default' }}
+          onClick={() => chat.type === 'group' && setShowGroupInfo(true)}
+        >
           <div className="chat-header-name">{chat.displayName || chat.name}</div>
           <div className={`chat-header-status ${isOnline ? otherStatus : ''}`}>{statusLabel}</div>
         </div>
@@ -349,6 +416,22 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
             <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
           </svg>
         </button>
+        <div className="msg-menu-wrap" onMouseLeave={() => setShowHeaderMenu(false)}>
+          <button className="icon-btn" title="Меню" onClick={() => setShowHeaderMenu(p => !p)}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
+          </button>
+          {showHeaderMenu && (
+            <div className="msg-context-menu" style={{ right: 0, top: 36 }}>
+              {chat.type === 'group' && (
+                <button className="msg-context-item" onClick={() => { setShowGroupInfo(true); setShowHeaderMenu(false); }}>ℹ️ Инфо о группе</button>
+              )}
+              <button className="msg-context-item" onClick={handleClearHistory}>🧹 Очистить историю</button>
+              <button className="msg-context-item danger" onClick={handleDeleteChat}>
+                {chat.type === 'group' ? '🗑 Удалить группу' : '🗑 Удалить чат'}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {selectMode && (
@@ -400,8 +483,9 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
           item.type === 'day'
             ? <div key={i} className="msg-day-label">{item.label}</div>
             : (
+              <Fragment key={item.msg.id}>
+              {item.msg.id === firstUnreadId && <div className="unread-divider">Непрочитанные сообщения</div>}
               <MessageItem
-                key={item.msg.id}
                 msg={item.msg}
                 isOwn={item.msg.senderId === currentUser.id}
                 showSender={chat.type === 'group'}
@@ -421,6 +505,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
                 onScrollToReply={scrollToMessage}
                 onForward={handleForward}
               />
+              </Fragment>
             )
         )}
         {typingList.length > 0 && (
@@ -517,6 +602,121 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
           </div>
         </div>
       )}
+
+      {showGroupInfo && chat.type === 'group' && (
+        <GroupInfo
+          chat={chat}
+          currentUser={currentUser}
+          token={token}
+          onlineUsers={onlineUsers}
+          onClose={() => setShowGroupInfo(false)}
+          onRename={handleRenameGroup}
+          onAddMembers={handleAddMembers}
+          onRemoveMember={handleRemoveMember}
+          onLeave={handleLeaveGroup}
+        />
+      )}
+    </div>
+  );
+}
+
+function GroupInfo({ chat, currentUser, token, onlineUsers, onClose, onRename, onAddMembers, onRemoveMember, onLeave }) {
+  const [allUsers, setAllUsers] = useState([]);
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState(chat.name || '');
+  const [adding, setAdding] = useState(false);
+  const [toAdd, setToAdd] = useState([]);
+  const isCreator = chat.createdBy === currentUser.id;
+
+  useEffect(() => {
+    fetch(`${API_URL}/users`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(setAllUsers).catch(() => {});
+  }, [token]);
+
+  const nameById = new Map(allUsers.map(u => [u.id, u.username]));
+  nameById.set(currentUser.id, currentUser.username);
+  const members = (chat.members || []);
+  const candidates = allUsers.filter(u => !members.includes(u.id));
+
+  function saveName() {
+    onRename(nameDraft);
+    setEditingName(false);
+  }
+  function confirmAdd() {
+    if (toAdd.length) onAddMembers(toAdd);
+    setAdding(false); setToAdd([]);
+  }
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <div className="group-info-head">
+          <div className="avatar lg group">{(chat.name || '?')[0].toUpperCase()}</div>
+          {editingName ? (
+            <div className="group-rename-row">
+              <input className="modal-input" value={nameDraft} onChange={e => setNameDraft(e.target.value)} autoFocus style={{ marginBottom: 0 }} />
+              <button className="btn btn-primary" style={{ flex: 'none', padding: '8px 14px' }} onClick={saveName}>✓</button>
+            </div>
+          ) : (
+            <h3 style={{ marginBottom: 0 }}>
+              {chat.name}
+              <button className="icon-btn" style={{ display: 'inline-flex', verticalAlign: 'middle' }} onClick={() => { setNameDraft(chat.name || ''); setEditingName(true); }} title="Переименовать">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              </button>
+            </h3>
+          )}
+          <div className="group-info-sub">{members.length} участников</div>
+        </div>
+
+        {!adding ? (
+          <>
+            <button className="btn btn-secondary" style={{ width: '100%', marginBottom: 10 }} onClick={() => setAdding(true)}>＋ Добавить участников</button>
+            <div className="modal-members">
+              {members.map(id => {
+                const name = id === currentUser.id ? `${currentUser.username} (вы)` : (nameById.get(id) || 'Пользователь');
+                const online = onlineUsers.has(id);
+                return (
+                  <div key={id} className="user-item">
+                    <div className="avatar sm">{(nameById.get(id) || '?')[0].toUpperCase()}<span className={`status-dot ${online ? 'online' : 'offline'}`} /></div>
+                    <span className="user-name">{name}{id === chat.createdBy && ' 👑'}</span>
+                    {isCreator && id !== currentUser.id && (
+                      <button className="icon-btn" style={{ marginLeft: 'auto', color: 'var(--danger)' }} onClick={() => onRemoveMember(id)} title="Удалить">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <button className="btn btn-danger" style={{ width: '100%', marginTop: 12 }} onClick={onLeave}>Выйти из группы</button>
+          </>
+        ) : (
+          <>
+            <div className="modal-members">
+              {candidates.length === 0 && <div className="empty-state" style={{ padding: 20 }}>Все уже в группе</div>}
+              {candidates.map(u => (
+                <div key={u.id} className={`user-item ${toAdd.includes(u.id) ? 'selected' : ''}`} onClick={() => setToAdd(prev => prev.includes(u.id) ? prev.filter(x => x !== u.id) : [...prev, u.id])}>
+                  <div className="avatar sm">{u.username[0].toUpperCase()}</div>
+                  <span className="user-name">{u.username}</span>
+                  {toAdd.includes(u.id) && (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ marginLeft: 'auto', color: 'var(--accent)' }}><path d="M20 6L9 17l-5-5"/></svg>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={() => { setAdding(false); setToAdd([]); }}>Назад</button>
+              <button className="btn btn-primary" onClick={confirmAdd} disabled={!toAdd.length}>Добавить</button>
+            </div>
+          </>
+        )}
+
+        {!adding && !editingName && (
+          <div className="modal-actions" style={{ marginTop: 12 }}>
+            <button className="btn btn-secondary" onClick={onClose}>Закрыть</button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

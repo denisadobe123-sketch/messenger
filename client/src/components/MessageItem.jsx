@@ -32,6 +32,8 @@ export default function MessageItem({
   const menuRef = useRef(null);
   const swipeStartRef = useRef(0);
   const swipingRef = useRef(false);
+  const longPressTimer = useRef(null);
+  const longPressedRef = useRef(false);
   const time = new Date(msg.createdAt).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
   const isImage = msg.file?.mimetype?.startsWith('image/');
 
@@ -50,16 +52,32 @@ export default function MessageItem({
     if (selectMode) return;
     swipeStartRef.current = e.touches[0].clientX;
     swipingRef.current = true;
+    longPressedRef.current = false;
+    clearTimeout(longPressTimer.current);
+    longPressTimer.current = setTimeout(() => {
+      longPressedRef.current = true;
+      swipingRef.current = false;
+      setSwipeX(0);
+      if (navigator.vibrate) navigator.vibrate(15);
+      setShowMenu(true);
+    }, 450);
   }
   function onTouchMove(e) {
     if (!swipingRef.current) return;
     const dx = e.touches[0].clientX - swipeStartRef.current;
+    if (Math.abs(dx) > 8) clearTimeout(longPressTimer.current);
     setSwipeX(Math.max(-40, Math.min(40, dx)));
   }
   function onTouchEnd() {
+    clearTimeout(longPressTimer.current);
     swipingRef.current = false;
+    if (longPressedRef.current) { longPressedRef.current = false; setSwipeX(0); return; }
     if (Math.abs(swipeX) > SWIPE_REPLY_THRESHOLD - 20 && !msg.deleted) onReply?.(msg);
     setSwipeX(0);
+  }
+
+  if (msg.system) {
+    return <div className="msg-system" id={`msg-${msg.id}`}>{msg.text}</div>;
   }
 
   if (msg.deleted) {
