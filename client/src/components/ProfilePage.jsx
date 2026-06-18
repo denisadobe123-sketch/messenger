@@ -9,6 +9,7 @@ export default function ProfilePage({ user, token, onUpdate, onLogout }) {
   const [displayName, setDisplayName] = useState(user.displayName || user.username || '');
   const [handle, setHandle] = useState(user.handle || user.username || '');
   const [bio, setBio] = useState(user.bio || '');
+  const [phone, setPhone] = useState(user.phone || '');
   const [status, setStatus] = useState(user.status || 'online');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -43,7 +44,7 @@ export default function ProfilePage({ user, token, onUpdate, onLogout }) {
       const res = await fetch(`${API_URL}/profile`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ bio, status, displayName, handle })
+        body: JSON.stringify({ bio, status, displayName, handle, phone: phone.trim() || null })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -136,6 +137,20 @@ export default function ProfilePage({ user, token, onUpdate, onLogout }) {
         <div className="profile-section">
           <label>О себе</label>
           <textarea className="modal-input" rows={3} placeholder="Расскажи о себе..." value={bio} onChange={e => setBio(e.target.value)} />
+        </div>
+
+        <div className="profile-section">
+          <label>Телефон <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>(для SMS когда нет интернета)</span></label>
+          <input
+            className="modal-input"
+            type="tel"
+            placeholder="+7 999 123 45 67"
+            value={phone}
+            onChange={e => setPhone(e.target.value)}
+          />
+          <span style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4, display: 'block' }}>
+            Если ты оффлайн и нет push-уведомлений — сообщение придёт по SMS
+          </span>
         </div>
 
         <div className="profile-section">

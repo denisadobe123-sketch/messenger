@@ -10,6 +10,24 @@ const fs = require('fs');
 const os = require('os');
 const webpush = require('web-push');
 
+// Twilio SMS fallback (optional — only active when env vars are set)
+let twilioClient = null;
+const TWILIO_FROM = process.env.TWILIO_FROM_NUMBER || null;
+try {
+  if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
+    twilioClient = require('twilio')(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+    console.log('✅ Twilio SMS enabled');
+  }
+} catch (e) { console.warn('Twilio not available:', e.message); }
+
+async function sendSMS(toPhone, body) {
+  if (!twilioClient || !TWILIO_FROM || !toPhone) return false;
+  try {
+    await twilioClient.messages.create({ body, from: TWILIO_FROM, to: toPhone });
+    return true;
+  } catch (e) { console.error('SMS error:', e.message); return false; }
+}
+
 const JWT_SECRET = process.env.JWT_SECRET || 'messenger_secret_2024';
 const PORT = process.env.PORT || 80;
 const FCM_SERVER_KEY = process.env.FCM_SERVER_KEY || null;
@@ -154,7 +172,8 @@ function getBaseUrl(req) {
 function safeUser(u) {
   return { id: u.id, username: u.username, handle: u.handle || u.username,
     displayName: u.displayName || u.username,
-    avatar: u.avatar || null, bio: u.bio || null, status: u.status || 'online', lastSeen: u.lastSeen || null };
+    avatar: u.avatar || null, bio: u.bio || null, status: u.status || 'online',
+    lastSeen: u.lastSeen || null, phone: u.phone || null };
 }
 
 function generateHandle(base) {
@@ -272,13 +291,14 @@ app.get('/profile', authMiddleware, (req, res) => {
 });
 
 app.put('/profile', authMiddleware, (req, res) => {
-  const { bio, status, displayName, handle } = req.body;
   const db = DB;
   const user = db.users.find(u => u.id === req.user.id);
   if (!user) return res.status(404).json({ error: 'Не найден' });
+  const { bio, status, displayName, handle, phone } = req.body;
   if (bio !== undefined) user.bio = bio;
   if (status !== undefined) user.status = status;
   if (displayName !== undefined) user.displayName = displayName.trim() || user.displayName;
+  if (phone !== undefined) user.phone = phone ? phone.trim() : null;
   if (handle !== undefined) {
     const clean = handle.replace(/^@/, '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 32);
     if (!clean) return res.status(400).json({ error: 'Недопустимый юзернейм' });
@@ -405,11 +425,13 @@ app.delete('/push/unsubscribe', authMiddleware, (req, res) => {
 async function sendWebPush(userId, payload) {
   const subs = loadPushSubs();
   const userSubs = subs[userId] || [];
-  if (!userSubs.length) return;
+  if (!userSubs.length) return false;
   const dead = [];
+  let sent = false;
   await Promise.all(userSubs.map(async (sub, i) => {
     try {
       await webpush.sendNotification(sub, JSON.stringify(payload));
+      sent = true;
     } catch (e) {
       if (e.statusCode === 410 || e.statusCode === 404) dead.push(i);
     }
@@ -419,6 +441,7 @@ async function sendWebPush(userId, payload) {
     if (fresh[userId]) fresh[userId] = fresh[userId].filter((_, i) => !dead.includes(i));
     savePushSubs(fresh);
   }
+  return sent;
 }
 
 // ── Chats ─────────────────────────────────────────────────────────────────────
@@ -481,6 +504,42 @@ app.get('/messages/:chatId/search', authMiddleware, (req, res) => {
   const q = (req.query.q || '').toLowerCase().trim();
   if (!q) return res.json([]);
   res.json(db.messages.filter(m => m.chatId === req.params.chatId && !m.deleted && m.text?.toLowerCase().includes(q)));
+});
+
+// ── Queued messages (Background Sync from Service Worker) ─────────────────────
+app.post('/messages/queued', authMiddleware, async (req, res) => {
+  const { chatId, text, file, sticker, voice, replyTo, clientId } = req.body;
+  const db = DB;
+  const chat = db.chats.find(c => c.id === chatId && c.members.includes(req.user.id));
+  if (!chat) return res.status(403).json({ error: 'Нет доступа' });
+  if (clientId && db.messages.find(m => m.clientId === clientId))
+    return res.json({ ok: true, duplicate: true });
+  const sender = db.users.find(u => u.id === req.user.id);
+  const senderName = sender?.displayName || sender?.username || req.user.username;
+  const message = {
+    id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+    clientId: clientId || null, chatId,
+    senderId: req.user.id, senderName,
+    text: text || null, file: file || null, voice: voice || null, sticker: sticker || null,
+    forwardOf: null, replyTo: null, reactions: [], edited: false, deleted: false,
+    createdAt: new Date().toISOString(), readBy: [req.user.id]
+  };
+  db.messages.push(message);
+  saveDB();
+  io.to(chatId).emit('new_message', message);
+  // Notify offline members
+  const pushBody = sticker || text || (voice ? '🎤 Голосовое' : '📎 Файл');
+  for (const memberId of chat.members) {
+    if (memberId === req.user.id) continue;
+    const offline = !isOnline(memberId);
+    if (offline) sendPushToUser(memberId, senderName, pushBody);
+    const webPushSent = await sendWebPush(memberId, { title: senderName, body: pushBody, chatId, icon: sender?.avatar || '/icon-192.png' });
+    if (offline && !webPushSent) {
+      const member = db.users.find(u => u.id === memberId);
+      if (member?.phone) sendSMS(member.phone, `💬 ${senderName}: ${pushBody}`);
+    }
+  }
+  res.json({ ok: true, messageId: message.id });
 });
 
 // ── Upload ────────────────────────────────────────────────────────────────────
@@ -553,7 +612,7 @@ io.on('connection', (socket) => {
     saveDB();
     io.to(chatId).emit('new_message', message);
 
-    // Push уведомления — FCM + Web Push для оффлайн пользователей
+    // Push уведомления — FCM + Web Push + SMS fallback для оффлайн
     const pushBody = sticker || text || (voice ? '🎤 Голосовое' : '📎 Файл');
     const sender = db.users.find(u => u.id === userId);
     const senderName = sender?.displayName || sender?.username || socket.user.username;
@@ -561,8 +620,14 @@ io.on('connection', (socket) => {
       if (memberId === userId) continue;
       const isBlocked = (db.blocked[memberId] || []).includes(userId);
       if (isBlocked) continue;
-      if (!isOnline(memberId)) sendPushToUser(memberId, senderName, pushBody);
-      sendWebPush(memberId, { title: senderName, body: pushBody, chatId, icon: sender?.avatar || '/icon-192.png' });
+      const offline = !isOnline(memberId);
+      if (offline) sendPushToUser(memberId, senderName, pushBody);
+      const webPushSent = await sendWebPush(memberId, { title: senderName, body: pushBody, chatId, icon: sender?.avatar || '/icon-192.png' });
+      // SMS fallback: send if user is offline and has no web push subscription
+      if (offline && !webPushSent) {
+        const member = db.users.find(u => u.id === memberId);
+        if (member?.phone) sendSMS(member.phone, `💬 ${senderName}: ${pushBody}`);
+      }
     }
   });
 

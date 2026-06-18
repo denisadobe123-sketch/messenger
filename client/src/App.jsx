@@ -88,10 +88,11 @@ export default function App() {
     initNative();
 
     // Online/offline detection
-    const onOnline = () => {
+    const onOnline = async () => {
       setIsOnline(true);
       const sock = getSocket();
-      if (sock && queueSize() > 0) {
+      const sz = await queueSize();
+      if (sock && sz > 0) {
         flushQueue(sock, (n) => { if (n > 0) console.log(`[Queue] Flushed ${n} messages`); });
       }
     };
@@ -112,13 +113,21 @@ export default function App() {
     };
   }, []);
 
-  // Handle notification click from service worker
+  // Handle messages from service worker (notification click + token requests)
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
     function onSwMessage(e) {
       if (e.data?.type === 'NOTIFICATION_CLICK' && e.data.chatId) {
         const chat = chats.find(c => c.id === e.data.chatId);
         if (chat) handleSelectChat(chat);
+      }
+      // SW requests token for Background Sync HTTP calls
+      if (e.data?.type === 'GET_TOKEN' && e.ports?.[0]) {
+        e.ports[0].postMessage({ token: localStorage.getItem('token') || '' });
+      }
+      // SW flushed queued messages successfully
+      if (e.data?.type === 'QUEUE_FLUSHED') {
+        console.log('[SW] Background Sync flushed', e.data.clientIds?.length, 'messages');
       }
     }
     navigator.serviceWorker.addEventListener('message', onSwMessage);
@@ -150,8 +159,9 @@ export default function App() {
     });
 
     // Flush offline queue on reconnect
-    socket.on('connect', () => {
-      if (queueSize() > 0) flushQueue(socket, n => console.log(`[Queue] Flushed ${n}`));
+    socket.on('connect', async () => {
+      const sz = await queueSize();
+      if (sz > 0) flushQueue(socket, n => console.log(`[Queue] Flushed ${n}`));
     });
 
     // Connect P2P to already-online users

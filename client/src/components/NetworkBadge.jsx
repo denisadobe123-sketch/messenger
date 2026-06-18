@@ -12,8 +12,7 @@ const MODE_CONFIG = {
 export default function NetworkBadge({ meshPeerCount = 0 }) {
   const [netMode, setNetMode] = useState(getMode());
   const [isOnline, setIsOnline] = useState(navigator.onLine);
-  const [queued, setQueued] = useState(queueSize());
-  const [visible, setVisible] = useState(false);
+  const [queued, setQueued] = useState(0);
 
   useEffect(() => {
     onModeChange(m => setNetMode(m));
@@ -22,22 +21,20 @@ export default function NetworkBadge({ meshPeerCount = 0 }) {
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
     const timer = setInterval(updateQueued, 2000);
+    updateQueued();
     return () => { window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline); clearInterval(timer); };
   }, []);
 
-  function updateQueued() { setQueued(queueSize()); }
+  async function updateQueued() { setQueued(await queueSize()); }
 
   const mode = !isOnline ? 'offline' : (meshPeerCount > 0 ? 'p2p' : netMode);
   const cfg = MODE_CONFIG[mode] || MODE_CONFIG.cloud;
-
-  // Only show when not in default cloud mode OR when there are queued messages
   const shouldShow = mode !== 'cloud' || queued > 0;
 
   return (
     <div
       className={`network-badge ${shouldShow ? 'visible' : ''}`}
       title={`Режим: ${cfg.label}${meshPeerCount > 0 ? ` · ${meshPeerCount} P2P` : ''}${queued > 0 ? ` · ${queued} в очереди` : ''}`}
-      onClick={() => setVisible(p => !p)}
     >
       <span className="network-badge-icon" style={{ color: cfg.color }}>{cfg.icon}</span>
       {shouldShow && (

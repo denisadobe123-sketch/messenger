@@ -239,8 +239,8 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     tap('light');
 
     if (!navigator.onLine) {
-      // Queue for later delivery
-      const queued = enqueue(payload);
+      // Queue for later delivery (async IndexedDB + Background Sync registration)
+      const queued = await enqueue(payload);
       // Show optimistic message locally
       const optimistic = {
         id: queued.clientId, clientId: queued.clientId, chatId: chat.id,
