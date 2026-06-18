@@ -70,6 +70,20 @@ function savePushSubs(data) {
 // Rate limiting: ip -> { count, resetAt }
 const registerAttempts = new Map();
 
+// OTP storage: otpToken -> { phone, code, expiresAt, attempts }
+const otpStore = new Map();
+
+function generateOTP() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+function cleanExpiredOTPs() {
+  const now = Date.now();
+  for (const [key, val] of otpStore) {
+    if (val.expiresAt < now) otpStore.delete(key);
+  }
+}
+
 function loadDB() {
   const tryParse = (file) => {
     if (!fs.existsSync(file)) return null;
@@ -173,7 +187,7 @@ function safeUser(u) {
   return { id: u.id, username: u.username, handle: u.handle || u.username,
     displayName: u.displayName || u.username,
     avatar: u.avatar || null, bio: u.bio || null, status: u.status || 'online',
-    lastSeen: u.lastSeen || null, phone: u.phone || null };
+    lastSeen: u.lastSeen || null };
 }
 
 function generateHandle(base) {
@@ -238,48 +252,97 @@ app.get('/network-info', (req, res) => {
   res.json({ localIPs: getLocalIPs(), port: PORT, version: APP_VERSION });
 });
 
-// ── Auth ──────────────────────────────────────────────────────────────────────
-app.post('/register', async (req, res) => {
-  // Rate limit: max 5 registrations per IP per hour
+// ── Auth (Telegram-style: phone → OTP → in) ───────────────────────────────────
+
+// Step 1: send OTP
+app.post('/auth/send-otp', async (req, res) => {
   const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip;
   const now = Date.now();
   const att = registerAttempts.get(ip) || { count: 0, resetAt: now + 3600000 };
   if (now > att.resetAt) { att.count = 0; att.resetAt = now + 3600000; }
   att.count++;
   registerAttempts.set(ip, att);
-  if (att.count > 5) return res.status(429).json({ error: 'Слишком много попыток. Попробуй через час.' });
+  if (att.count > 10) return res.status(429).json({ error: 'Слишком много попыток. Попробуй через час.' });
 
-  const { username, password, displayName } = req.body;
-  if (!username?.trim() || !password) return res.status(400).json({ error: 'Введите логин и пароль' });
-  if (password.length < 6) return res.status(400).json({ error: 'Пароль минимум 6 символов' });
-  if (username.length < 3) return res.status(400).json({ error: 'Логин минимум 3 символа' });
+  const { phone } = req.body;
+  if (!phone?.trim()) return res.status(400).json({ error: 'Введи номер телефона' });
+
+  const code = generateOTP();
+  const otpToken = require('crypto').randomBytes(32).toString('hex');
+  cleanExpiredOTPs();
+  otpStore.set(otpToken, { phone: phone.trim(), code, expiresAt: now + 10 * 60 * 1000, attempts: 0 });
+
+  // Send SMS via SMS.ru
+  const smsSent = await sendSMS(phone.trim(), `Ваш код подтверждения Messenger: ${code}`);
+
+  if (!smsSent && SMSRU_API_ID) {
+    return res.status(500).json({ error: 'Не удалось отправить SMS. Проверь номер телефона.' });
+  }
+
+  // Dev mode: if no SMS.ru configured, log code to console
+  if (!SMSRU_API_ID) {
+    console.log(`[DEV] OTP for ${phone}: ${code}`);
+  }
+
+  res.json({ otpToken, ...((!SMSRU_API_ID) ? { devCode: code } : {}) });
+});
+
+// Step 2: verify OTP → login or auto-register
+app.post('/auth/verify-otp', async (req, res) => {
+  const { phone, otpToken, otpCode } = req.body;
+  if (!phone || !otpToken || !otpCode) return res.status(400).json({ error: 'Неверный запрос' });
+
+  const entry = otpStore.get(otpToken);
+  if (!entry) return res.status(400).json({ error: 'Код устарел. Запроси новый.' });
+  if (Date.now() > entry.expiresAt) { otpStore.delete(otpToken); return res.status(400).json({ error: 'Код истёк. Запроси новый.' }); }
+  if (entry.phone !== phone.trim()) return res.status(400).json({ error: 'Неверный номер' });
+
+  entry.attempts = (entry.attempts || 0) + 1;
+  if (entry.attempts > 5) { otpStore.delete(otpToken); return res.status(429).json({ error: 'Слишком много попыток. Запроси новый код.' }); }
+  if (entry.code !== otpCode.trim()) return res.status(400).json({ error: `Неверный код. Осталось попыток: ${5 - entry.attempts}` });
+
+  otpStore.delete(otpToken);
+
   const db = DB;
-  const uname = username.trim().toLowerCase();
-  // Case-insensitive uniqueness check
-  if (db.users.find(u => u.username.toLowerCase() === uname))
-    return res.status(400).json({ error: 'Логин уже занят' });
-  // auto-generate unique handle from username
-  let handle = generateHandle(uname);
-  let suffix = 1;
-  while (isHandleTaken(handle, null)) handle = generateHandle(uname) + suffix++;
-  const user = { id: Date.now().toString(), username: uname,
-    handle, displayName: (displayName || '').trim() || uname,
-    password: await bcrypt.hash(password, 10), avatar: null, bio: null, status: 'online', createdAt: new Date().toISOString() };
-  db.users.push(user);
-  saveDB();
+  // Check if user with this phone exists → login
+  let user = db.users.find(u => u.phone === phone.trim());
+  if (!user) {
+    // Auto-register with random username
+    const randomSuffix = Math.floor(Math.random() * 9000 + 1000);
+    let username = `user${randomSuffix}`;
+    while (db.users.find(u => u.username === username)) username = `user${Math.floor(Math.random() * 90000 + 10000)}`;
+    let handle = username;
+    while (isHandleTaken(handle, null)) handle = `${username}_${Math.floor(Math.random() * 999)}`;
+    user = {
+      id: Date.now().toString(), username, handle,
+      displayName: `User ${randomSuffix}`,
+      phone: phone.trim(), password: null,
+      avatar: null, bio: null, status: 'online',
+      createdAt: new Date().toISOString()
+    };
+    db.users.push(user);
+    saveDB();
+  }
+
   const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET);
   res.json({ token, user: safeUser(user) });
 });
 
+// Legacy login with password (kept for existing accounts)
 app.post('/login', async (req, res) => {
   const { username, password } = req.body;
   const db = DB;
-  // Case-insensitive login
   const user = db.users.find(u => u.username.toLowerCase() === (username || '').toLowerCase());
   if (!user) return res.status(400).json({ error: 'Пользователь не найден' });
+  if (!user.password) return res.status(400).json({ error: 'Используй вход по номеру телефона' });
   if (!await bcrypt.compare(password, user.password)) return res.status(400).json({ error: 'Неверный пароль' });
   const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET);
   res.json({ token, user: safeUser(user) });
+});
+
+// Legacy register (kept for compatibility)
+app.post('/register', async (req, res) => {
+  return res.status(400).json({ error: 'Используй вход по номеру телефона' });
 });
 
 // ── Profile ───────────────────────────────────────────────────────────────────

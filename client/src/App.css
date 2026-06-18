@@ -146,6 +146,35 @@ body {
   background: transparent !important; border: none !important; border-radius: 0 !important;
   padding: 13px 16px 13px 4px !important; flex: 1;
 }
+
+/* Telegram-style auth */
+.auth-box.tg-style { padding: 48px 40px; }
+.auth-logo-icon { width: 80px; height: 80px; margin: 0 auto 16px; }
+.auth-logo-icon svg { width: 80px; height: 80px; }
+.auth-logo h1 { font-size: 26px; font-weight: 800; margin: 0 0 32px; }
+.auth-desc {
+  font-size: 15px; color: var(--text-secondary); text-align: center;
+  line-height: 1.6; margin-bottom: 8px;
+}
+.auth-desc strong { color: var(--text-primary); }
+.phone-input { font-size: 18px !important; padding: 16px 20px !important; text-align: center; letter-spacing: 1px; }
+.otp-input {
+  font-size: 28px !important; padding: 16px 20px !important;
+  text-align: center; letter-spacing: 8px; font-weight: 700;
+}
+.auth-resend-wrap { text-align: center; margin-top: 4px; }
+.auth-resend-timer { font-size: 13px; color: var(--text-muted); }
+.auth-resend-btn {
+  background: none; border: none; color: var(--accent);
+  font-size: 14px; font-weight: 600; cursor: pointer; padding: 4px;
+}
+.auth-resend-btn:hover { text-decoration: underline; }
+.auth-back-btn {
+  background: none; border: none; color: var(--text-secondary);
+  font-size: 13px; cursor: pointer; padding: 4px; text-align: center;
+  margin-top: 4px;
+}
+.auth-back-btn:hover { color: var(--text-primary); }
 .auth-input-handle:focus { border: none !important; outline: none; }
 
 /* ── App Layout ──────────────────────────────────── */
