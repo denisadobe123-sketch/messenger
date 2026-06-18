@@ -11,6 +11,7 @@ import { initPushNotifications, removePushToken } from './pushNotifications.js';
 import { initNative, tap } from './native.js';
 import UpdateChecker from './components/UpdateChecker.jsx';
 import NetworkBadge from './components/NetworkBadge.jsx';
+import OfflineChat from './components/OfflineChat.jsx';
 import { mesh } from './mesh.js';
 import { enqueue, flushQueue, queueSize } from './offlineQueue.js';
 import { discoverLan, startLanWatchdog } from './lanDiscovery.js';
@@ -60,6 +61,7 @@ export default function App() {
   });
   const [meshPeerCount, setMeshPeerCount] = useState(0);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [showOfflineChat, setShowOfflineChat] = useState(false);
   const selectedChatRef = useRef(null);
   const mutedRef = useRef(mutedChats);
 
@@ -302,6 +304,7 @@ export default function App() {
         mutedChats={mutedChats}
         onToggleMute={toggleMute}
         onDeleteChat={deleteChat}
+        onOpenMesh={() => setShowOfflineChat(true)}
         token={token}
         onProfileUpdate={handleProfileUpdate}
         onLogout={handleLogout}
@@ -331,6 +334,9 @@ export default function App() {
         onClick={t => { const chat = chats.find(c => c.id === t.chatId); if (chat) handleSelectChat(chat); }}
       />
       <NetworkBadge meshPeerCount={meshPeerCount} />
+      {showOfflineChat && (
+        <OfflineChat currentUser={user} onClose={() => setShowOfflineChat(false)} />
+      )}
       <UpdateChecker />
     </div>
   );
