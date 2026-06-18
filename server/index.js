@@ -7,6 +7,7 @@ const bcrypt = require('bcryptjs');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const webpush = require('web-push');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'messenger_secret_2024';
 const PORT = process.env.PORT || 80;
@@ -18,9 +19,37 @@ const DATA_DIR = process.env.DATA_DIR || __dirname;
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 const FCM_FILE = path.join(DATA_DIR, 'fcm_tokens.json');
+const VAPID_FILE = path.join(DATA_DIR, 'vapid.json');
+const PUSH_SUBS_FILE = path.join(DATA_DIR, 'push_subs.json');
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+
+// ── VAPID (Web Push) ──────────────────────────────────────────────────────────
+let VAPID_KEYS;
+try {
+  if (fs.existsSync(VAPID_FILE)) {
+    VAPID_KEYS = JSON.parse(fs.readFileSync(VAPID_FILE, 'utf8'));
+  } else {
+    VAPID_KEYS = webpush.generateVAPIDKeys();
+    fs.writeFileSync(VAPID_FILE, JSON.stringify(VAPID_KEYS));
+    console.log('✅ VAPID keys generated');
+  }
+} catch (e) {
+  VAPID_KEYS = webpush.generateVAPIDKeys();
+  console.error('VAPID load error, generated new keys:', e.message);
+}
+webpush.setVapidDetails('mailto:admin@messenger.app', VAPID_KEYS.publicKey, VAPID_KEYS.privateKey);
+
+function loadPushSubs() {
+  try { return JSON.parse(fs.readFileSync(PUSH_SUBS_FILE, 'utf8')); } catch { return {}; }
+}
+function savePushSubs(data) {
+  try { fs.writeFileSync(PUSH_SUBS_FILE, JSON.stringify(data)); } catch {}
+}
+
+// Rate limiting: ip -> { count, resetAt }
+const registerAttempts = new Map();
 
 function loadDB() {
   const tryParse = (file) => {
@@ -47,7 +76,7 @@ function loadDB() {
 }
 
 function normalizeDB(d) {
-  return { users: d.users || [], chats: d.chats || [], messages: d.messages || [] };
+  return { users: d.users || [], chats: d.chats || [], messages: d.messages || [], blocked: d.blocked || {} };
 }
 
 // Единый объект БД в памяти — все обработчики работают с ним, без перечитывания
@@ -175,12 +204,23 @@ app.get('/version', (req, res) => {
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 app.post('/register', async (req, res) => {
+  // Rate limit: max 5 registrations per IP per hour
+  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip;
+  const now = Date.now();
+  const att = registerAttempts.get(ip) || { count: 0, resetAt: now + 3600000 };
+  if (now > att.resetAt) { att.count = 0; att.resetAt = now + 3600000; }
+  att.count++;
+  registerAttempts.set(ip, att);
+  if (att.count > 5) return res.status(429).json({ error: 'Слишком много попыток. Попробуй через час.' });
+
   const { username, password, displayName } = req.body;
   if (!username?.trim() || !password) return res.status(400).json({ error: 'Введите логин и пароль' });
   if (password.length < 6) return res.status(400).json({ error: 'Пароль минимум 6 символов' });
+  if (username.length < 3) return res.status(400).json({ error: 'Логин минимум 3 символа' });
   const db = DB;
-  const uname = username.trim();
-  if (db.users.find(u => u.username === uname))
+  const uname = username.trim().toLowerCase();
+  // Case-insensitive uniqueness check
+  if (db.users.find(u => u.username.toLowerCase() === uname))
     return res.status(400).json({ error: 'Логин уже занят' });
   // auto-generate unique handle from username
   let handle = generateHandle(uname);
@@ -198,7 +238,8 @@ app.post('/register', async (req, res) => {
 app.post('/login', async (req, res) => {
   const { username, password } = req.body;
   const db = DB;
-  const user = db.users.find(u => u.username === username);
+  // Case-insensitive login
+  const user = db.users.find(u => u.username.toLowerCase() === (username || '').toLowerCase());
   if (!user) return res.status(400).json({ error: 'Пользователь не найден' });
   if (!await bcrypt.compare(password, user.password)) return res.status(400).json({ error: 'Неверный пароль' });
   const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET);
@@ -280,8 +321,10 @@ app.delete('/fcm-token', authMiddleware, (req, res) => {
 app.get('/users', authMiddleware, (req, res) => {
   const db = DB;
   let q = (req.query.q || '').toLowerCase().replace(/^@/, '');
+  const myBlocked = db.blocked[req.user.id] || [];
   res.json(db.users.filter(u => {
     if (u.id === req.user.id) return false;
+    if (myBlocked.includes(u.id)) return false; // hide blocked users
     if (!q) return true;
     return (u.handle || u.username).toLowerCase().includes(q)
       || (u.displayName || u.username).toLowerCase().includes(q)
@@ -295,6 +338,71 @@ app.get('/users/by-handle/:handle', authMiddleware, (req, res) => {
   if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
   res.json(safeUser(user));
 });
+
+// ── Block / Unblock ───────────────────────────────────────────────────────────
+app.post('/block/:targetId', authMiddleware, (req, res) => {
+  const { targetId } = req.params;
+  if (!DB.blocked[req.user.id]) DB.blocked[req.user.id] = [];
+  if (!DB.blocked[req.user.id].includes(targetId)) DB.blocked[req.user.id].push(targetId);
+  saveDB();
+  res.json({ ok: true });
+});
+
+app.delete('/block/:targetId', authMiddleware, (req, res) => {
+  const { targetId } = req.params;
+  DB.blocked[req.user.id] = (DB.blocked[req.user.id] || []).filter(id => id !== targetId);
+  saveDB();
+  res.json({ ok: true });
+});
+
+app.get('/blocked', authMiddleware, (req, res) => {
+  const ids = DB.blocked[req.user.id] || [];
+  res.json(ids.map(id => DB.users.find(u => u.id === id)).filter(Boolean).map(safeUser));
+});
+
+// ── Web Push (VAPID) ──────────────────────────────────────────────────────────
+app.get('/push/vapid-key', (req, res) => {
+  res.json({ publicKey: VAPID_KEYS.publicKey });
+});
+
+app.post('/push/subscribe', authMiddleware, (req, res) => {
+  const { subscription } = req.body;
+  if (!subscription?.endpoint) return res.status(400).json({ error: 'No subscription' });
+  const subs = loadPushSubs();
+  if (!subs[req.user.id]) subs[req.user.id] = [];
+  // avoid duplicates
+  const exists = subs[req.user.id].some(s => s.endpoint === subscription.endpoint);
+  if (!exists) subs[req.user.id].push(subscription);
+  savePushSubs(subs);
+  res.json({ ok: true });
+});
+
+app.delete('/push/unsubscribe', authMiddleware, (req, res) => {
+  const { endpoint } = req.body;
+  const subs = loadPushSubs();
+  if (subs[req.user.id]) subs[req.user.id] = subs[req.user.id].filter(s => s.endpoint !== endpoint);
+  savePushSubs(subs);
+  res.json({ ok: true });
+});
+
+async function sendWebPush(userId, payload) {
+  const subs = loadPushSubs();
+  const userSubs = subs[userId] || [];
+  if (!userSubs.length) return;
+  const dead = [];
+  await Promise.all(userSubs.map(async (sub, i) => {
+    try {
+      await webpush.sendNotification(sub, JSON.stringify(payload));
+    } catch (e) {
+      if (e.statusCode === 410 || e.statusCode === 404) dead.push(i);
+    }
+  }));
+  if (dead.length) {
+    const fresh = loadPushSubs();
+    if (fresh[userId]) fresh[userId] = fresh[userId].filter((_, i) => !dead.includes(i));
+    savePushSubs(fresh);
+  }
+}
 
 // ── Chats ─────────────────────────────────────────────────────────────────────
 app.get('/chats', authMiddleware, (req, res) => {
@@ -428,12 +536,16 @@ io.on('connection', (socket) => {
     saveDB();
     io.to(chatId).emit('new_message', message);
 
-    // Push уведомления оффлайн пользователям
-    const body = sticker || text || (voice ? '🎤 Голосовое' : '📎 Файл');
+    // Push уведомления — FCM + Web Push для оффлайн пользователей
+    const pushBody = sticker || text || (voice ? '🎤 Голосовое' : '📎 Файл');
+    const sender = db.users.find(u => u.id === userId);
+    const senderName = sender?.displayName || sender?.username || socket.user.username;
     for (const memberId of chat.members) {
-      if (memberId !== userId && !isOnline(memberId)) {
-        sendPushToUser(memberId, socket.user.username, body);
-      }
+      if (memberId === userId) continue;
+      const isBlocked = (db.blocked[memberId] || []).includes(userId);
+      if (isBlocked) continue;
+      if (!isOnline(memberId)) sendPushToUser(memberId, senderName, pushBody);
+      sendWebPush(memberId, { title: senderName, body: pushBody, chatId, icon: sender?.avatar || '/icon-192.png' });
     }
   });
 

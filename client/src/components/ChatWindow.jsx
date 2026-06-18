@@ -51,6 +51,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
   const [showGroupInfo, setShowGroupInfo] = useState(false);
+  const [isBlocked, setIsBlocked] = useState(false);
   const [firstUnreadId, setFirstUnreadId] = useState(null);
   const [backSwipeX, setBackSwipeX] = useState(0);
   const backSwipe = useRef({ x: 0, y: 0, dx: 0, active: false });
@@ -277,6 +278,14 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     if (!confirm('Очистить всю историю сообщений?')) return;
     socket?.emit('clear_history', { chatId: chat.id });
   }
+  async function handleToggleBlock() {
+    setShowHeaderMenu(false);
+    const otherId = chat.members?.find(id => id !== currentUser.id);
+    if (!otherId) return;
+    const method = isBlocked ? 'DELETE' : 'POST';
+    await fetch(`${API_URL}/block/${otherId}`, { method, headers: { Authorization: `Bearer ${token}` } });
+    setIsBlocked(p => !p);
+  }
   function handleLeaveGroup() {
     setShowGroupInfo(false);
     if (!confirm('Выйти из группы?')) return;
@@ -459,6 +468,11 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
                 <button className="msg-context-item" onClick={() => { setShowGroupInfo(true); setShowHeaderMenu(false); }}>ℹ️ Инфо о группе</button>
               )}
               <button className="msg-context-item" onClick={handleClearHistory}>🧹 Очистить историю</button>
+              {chat.type === 'private' && (
+                <button className="msg-context-item" onClick={handleToggleBlock}>
+                  {isBlocked ? '✅ Разблокировать' : '🚫 Заблокировать'}
+                </button>
+              )}
               <button className="msg-context-item danger" onClick={handleDeleteChat}>
                 {chat.type === 'group' ? '🗑 Удалить группу' : '🗑 Удалить чат'}
               </button>

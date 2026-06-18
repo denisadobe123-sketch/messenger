@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { API_URL } from '../api.js';
 import { getTheme, toggleTheme } from '../theme.js';
 import { getAvatarColor } from '../avatarColor.js';
@@ -17,7 +17,18 @@ export default function ProfilePage({ user, token, onUpdate, onLogout }) {
   const [loading, setLoading] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState(user.avatar || null);
   const [theme, setTheme] = useState(getTheme());
+  const [blockedUsers, setBlockedUsers] = useState([]);
   const fileRef = useRef();
+
+  useEffect(() => {
+    fetch(`${API_URL}/blocked`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(setBlockedUsers).catch(() => {});
+  }, [token]);
+
+  async function unblock(userId) {
+    await fetch(`${API_URL}/block/${userId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+    setBlockedUsers(prev => prev.filter(u => u.id !== userId));
+  }
 
   function handleToggleTheme() { setTheme(toggleTheme()); }
   function clear() { setMsg(''); setErr(''); }
@@ -164,6 +175,27 @@ export default function ProfilePage({ user, token, onUpdate, onLogout }) {
         </button>
 
         <div className="profile-divider" />
+
+        {blockedUsers.length > 0 && (
+          <>
+            <h3 style={{ fontSize: 15, margin: '20px 0 14px' }}>🚫 Заблокированные</h3>
+            {blockedUsers.map(u => (
+              <div key={u.id} className="blocked-user-row">
+                <div className="avatar sm" style={{ background: getAvatarColor(u.username), flexShrink: 0 }}>
+                  {u.avatar ? <img src={u.avatar} alt="" /> : (u.displayName || u.username)[0].toUpperCase()}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{u.displayName || u.username}</div>
+                  <div style={{ fontSize: 12, color: 'var(--accent)' }}>@{u.handle || u.username}</div>
+                </div>
+                <button className="btn btn-secondary" style={{ fontSize: 12, padding: '6px 12px' }} onClick={() => unblock(u.id)}>
+                  Разблок.
+                </button>
+              </div>
+            ))}
+            <div className="profile-divider" />
+          </>
+        )}
 
         <button className="btn btn-danger" style={{ width: '100%', marginTop: 20 }} onClick={onLogout}>
           Выйти из аккаунта

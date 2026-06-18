@@ -719,6 +719,7 @@ body {
 .profile-page-displayname { font-size: 20px; font-weight: 700; margin-top: 8px; color: var(--text-primary); }
 .profile-page-handle { font-size: 14px; color: var(--accent); margin-top: 2px; margin-bottom: 4px; }
 .profile-handle-hint { font-size: 11px; color: var(--text-muted); margin-top: 4px; display: block; }
+.blocked-user-row { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--border); }
 
 .profile-page-body { padding: 20px; flex: 1; }
 .profile-divider { height: 1px; background: var(--border); margin: 4px 0 0; }

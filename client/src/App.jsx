@@ -77,6 +77,19 @@ export default function App() {
   useEffect(() => { selectedChatRef.current = selectedChat; }, [selectedChat]);
   useEffect(() => { applyTheme(getTheme()); initNative(); }, []);
 
+  // Handle notification click from service worker
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    function onSwMessage(e) {
+      if (e.data?.type === 'NOTIFICATION_CLICK' && e.data.chatId) {
+        const chat = chats.find(c => c.id === e.data.chatId);
+        if (chat) handleSelectChat(chat);
+      }
+    }
+    navigator.serviceWorker.addEventListener('message', onSwMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onSwMessage);
+  }, [chats]);
+
   useEffect(() => {
     if (!user || !token) return;
     requestNotificationPermission();
