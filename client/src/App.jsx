@@ -169,6 +169,12 @@ export default function App() {
     disconnectSocket(); setUser(null); setToken(''); setChats([]); setSelectedChat(null);
   }
 
+  function deleteChat(chat) {
+    const label = chat.type === 'group' ? 'Удалить группу для всех?' : 'Удалить чат и всю переписку?';
+    if (!confirm(label)) return;
+    getSocket()?.emit('delete_chat', { chatId: chat.id });
+  }
+
   function handleSelectChat(chat) {
     tap('light');
     setSelectedChat(chat);
@@ -221,6 +227,7 @@ export default function App() {
         onNewChat={handleNewChat}
         mutedChats={mutedChats}
         onToggleMute={toggleMute}
+        onDeleteChat={deleteChat}
         token={token}
         onProfileUpdate={handleProfileUpdate}
         onLogout={handleLogout}

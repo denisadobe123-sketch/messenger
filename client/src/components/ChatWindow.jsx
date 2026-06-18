@@ -52,6 +52,8 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
   const [showGroupInfo, setShowGroupInfo] = useState(false);
   const [firstUnreadId, setFirstUnreadId] = useState(null);
+  const [backSwipeX, setBackSwipeX] = useState(0);
+  const backSwipe = useRef({ x: 0, y: 0, dx: 0, active: false });
   const dragCounter = useRef(0);
 
   const [recording, setRecording] = useState(false);
@@ -212,6 +214,28 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     setReplyingTo(null);
   }
 
+  // ── Свайп вправо от левого края — выход из чата (как в ТГ) ────────────────
+  function onWinTouchStart(e) {
+    const t = e.touches[0];
+    backSwipe.current = { x: t.clientX, y: t.clientY, dx: 0, active: t.clientX < 36 };
+  }
+  function onWinTouchMove(e) {
+    if (!backSwipe.current.active) return;
+    const t = e.touches[0];
+    const dx = t.clientX - backSwipe.current.x;
+    const dy = t.clientY - backSwipe.current.y;
+    if (Math.abs(dy) > Math.abs(dx)) { backSwipe.current.active = false; setBackSwipeX(0); return; }
+    if (dx < 0) { setBackSwipeX(0); return; }
+    backSwipe.current.dx = dx;
+    setBackSwipeX(dx);
+  }
+  function onWinTouchEnd() {
+    const { dx, active } = backSwipe.current;
+    backSwipe.current.active = false;
+    setBackSwipeX(0);
+    if (active && dx > 90) onBack?.();
+  }
+
   // ── Drag & drop files ────────────────────────────────────────────────────
   function onDragEnter(e) { e.preventDefault(); dragCounter.current++; setIsDragging(true); }
   function onDragLeave(e) { e.preventDefault(); dragCounter.current--; if (dragCounter.current <= 0) setIsDragging(false); }
@@ -369,7 +393,13 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   const recMins = Math.floor(recordTime / 60), recSecs = recordTime % 60;
 
   return (
-    <div className="chat-window">
+    <div
+      className="chat-window"
+      style={{ transform: backSwipeX ? `translateX(${backSwipeX}px)` : undefined, transition: backSwipeX ? 'none' : 'transform 0.22s cubic-bezier(.32,.72,0,1)' }}
+      onTouchStart={onWinTouchStart}
+      onTouchMove={onWinTouchMove}
+      onTouchEnd={onWinTouchEnd}
+    >
       <div className="chat-header">
         <button className="icon-btn back-btn" onClick={onBack}>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

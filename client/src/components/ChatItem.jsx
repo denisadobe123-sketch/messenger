@@ -30,7 +30,7 @@ const SWIPE_THRESHOLD = 70;
 
 export default function ChatItem({
   chat, currentUser, isActive, isOnline, otherStatus, otherAvatar, isPinned, isArchived, isMuted,
-  onSelect, onArchive, onTogglePin, onToggleMute, menuOpen, onToggleMenu
+  onSelect, onArchive, onTogglePin, onToggleMute, onDeleteChat, menuOpen, onToggleMenu
 }) {
   const [dragX, setDragX] = useState(0);
   const startXRef = useRef(0);
@@ -96,6 +96,9 @@ export default function ChatItem({
               </button>
               <button className="msg-context-item" onClick={() => onArchive(chat.id)}>
                 {isArchived ? '📤 Вернуть из архива' : '📥 Архивировать'}
+              </button>
+              <button className="msg-context-item danger" onClick={() => onDeleteChat?.(chat)}>
+                🗑 Удалить чат
               </button>
             </div>
           )}

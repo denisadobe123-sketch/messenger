@@ -33,7 +33,7 @@ function usePersistedState(key, initial) {
 
 const TABS = ['chats', 'users', 'profile'];
 
-export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses, userProfiles, selectedChat, onSelectChat, onNewChat, mutedChats, onToggleMute, token, onProfileUpdate, onLogout }) {
+export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses, userProfiles, selectedChat, onSelectChat, onNewChat, mutedChats, onToggleMute, onDeleteChat, token, onProfileUpdate, onLogout }) {
   const [tab, setTab] = useState('chats');
   const [dragX, setDragX] = useState(0);
   const [slideAnim, setSlideAnim] = useState('');
@@ -258,6 +258,7 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
                 onArchive={toggleArchive}
                 onTogglePin={togglePin}
                 onToggleMute={onToggleMute}
+                onDeleteChat={onDeleteChat}
                 menuOpen={chatMenuId === chat.id}
                 onToggleMenu={id => setChatMenuId(p => p === id ? null : id)}
               />
@@ -289,23 +290,6 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
         </div>
       )}
       </div>
-
-      {tab !== 'profile' && (
-        <div className="sidebar-footer" onClick={() => switchTab('profile', 'left')}>
-          <div className="avatar sm" style={!currentUser.avatar ? { background: getAvatarColor(currentUser.username) } : undefined}>
-            {currentUser.avatar ? <img src={currentUser.avatar} alt={currentUser.username} /> : getInitials(currentUser.username)}
-            <StatusDot status={myStatus} online={true} />
-          </div>
-          <div className="user-info">
-            <div className="name">{currentUser.username}</div>
-            <div className={`status-text ${myStatus}`}>{STATUS_LABELS[myStatus]}</div>
-          </div>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--text-muted)' }}>
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-          </svg>
-        </div>
-      )}
 
       {showFolderModal && (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowFolderModal(false)}>
