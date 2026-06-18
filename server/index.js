@@ -10,21 +10,21 @@ const fs = require('fs');
 const os = require('os');
 const webpush = require('web-push');
 
-// Twilio SMS fallback (optional — only active when env vars are set)
-let twilioClient = null;
-const TWILIO_FROM = process.env.TWILIO_FROM_NUMBER || null;
-try {
-  if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
-    twilioClient = require('twilio')(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-    console.log('✅ Twilio SMS enabled');
-  }
-} catch (e) { console.warn('Twilio not available:', e.message); }
+// SMS.ru fallback (optional — only active when SMSRU_API_ID env var is set)
+const SMSRU_API_ID = process.env.SMSRU_API_ID || null;
+if (SMSRU_API_ID) console.log('✅ SMS.ru enabled');
 
 async function sendSMS(toPhone, body) {
-  if (!twilioClient || !TWILIO_FROM || !toPhone) return false;
+  if (!SMSRU_API_ID || !toPhone) return false;
+  // normalize: strip spaces/dashes, ensure starts with 7 for RU numbers
+  const phone = toPhone.replace(/[\s\-\(\)]/g, '').replace(/^\+/, '');
   try {
-    await twilioClient.messages.create({ body, from: TWILIO_FROM, to: toPhone });
-    return true;
+    const url = `https://sms.ru/sms/send?api_id=${SMSRU_API_ID}&to=${phone}&msg=${encodeURIComponent(body)}&json=1`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.status === 'OK') return true;
+    console.error('SMS.ru error:', data.status_text || JSON.stringify(data));
+    return false;
   } catch (e) { console.error('SMS error:', e.message); return false; }
 }
 
