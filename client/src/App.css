@@ -1178,13 +1178,10 @@ body {
 /* Плавный скролл и убираем синюю подсветку тапа */
 * { -webkit-tap-highlight-color: transparent; }
 .chat-list, .messages-wrap, .user-list, .modal-members, .profile-page {
-  scroll-behavior: smooth;
-  -webkit-overflow-scrolling: touch;       /* инерционный скролл в WebView/iOS */
+  -webkit-overflow-scrolling: touch;       /* нативный инерционный скролл */
   overscroll-behavior: contain;            /* без проброса скролла наружу */
   scrollbar-width: thin;
 }
-/* Подсказка движку — плавнее перерисовка при скролле */
-.chat-list, .messages-wrap, .user-list { will-change: scroll-position; transform: translateZ(0); }
 
 /* ── Системные сообщения / разделитель непрочитанных ── */
 .msg-system {
