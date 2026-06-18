@@ -1430,3 +1430,39 @@ body {
   .emoji-picker { width: calc(100vw - 24px); }
   .emoji-picker-popup { right: -8px; }
 }
+
+/* ── Network Badge (Mesh / LAN / P2P indicator) ──── */
+.network-badge {
+  position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 5px;
+  background: var(--bg-secondary); border: 1px solid var(--border);
+  border-radius: 20px; padding: 4px 10px; z-index: 1000;
+  font-size: 12px; font-weight: 600; cursor: pointer;
+  opacity: 0; pointer-events: none; transition: opacity 0.3s, transform 0.3s;
+  transform: translateX(-50%) translateY(-40px);
+  box-shadow: 0 2px 12px var(--shadow);
+  white-space: nowrap;
+}
+.network-badge.visible {
+  opacity: 1; pointer-events: auto;
+  transform: translateX(-50%) translateY(0);
+}
+.network-badge-icon { font-size: 14px; }
+.network-badge-label { color: var(--text-primary); }
+
+/* Offline banner */
+.offline-mode .chat-header::after {
+  content: '🔌 Нет связи — сообщения сохраняются';
+  display: block; position: absolute; top: 100%; left: 0; right: 0;
+  background: #c62828; color: white; font-size: 11px; text-align: center;
+  padding: 3px 8px; font-weight: 600; z-index: 10;
+}
+.chat-header { position: relative; }
+
+/* Pending message indicator */
+.msg-pending { opacity: 0.55; font-size: 12px; }
+
+/* P2P connection glow on message */
+.msg-bubble.p2p-delivery {
+  box-shadow: 0 0 8px rgba(167,139,250,0.35);
+}

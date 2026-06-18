@@ -5,6 +5,8 @@ import EmojiPicker from './EmojiPicker.jsx';
 import { getSocket } from '../socket.js';
 import { API_URL } from '../api.js';
 import { tap } from '../native.js';
+import { enqueue } from '../offlineQueue.js';
+import { mesh } from '../mesh.js';
 
 const DRAFTS_KEY = 'chat_drafts';
 
@@ -233,10 +235,34 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
       setUploading(false);
     }
 
-    socket.emit('send_message', { chatId: chat.id, text: text.trim() || null, file: fileData, replyTo: replyingTo?.id || null });
+    const payload = { chatId: chat.id, text: text.trim() || null, file: fileData, replyTo: replyingTo?.id || null };
     tap('light');
+
+    if (!navigator.onLine) {
+      // Queue for later delivery
+      const queued = enqueue(payload);
+      // Show optimistic message locally
+      const optimistic = {
+        id: queued.clientId, clientId: queued.clientId, chatId: chat.id,
+        senderId: currentUser.id, senderName: currentUser.username,
+        text: payload.text, file: payload.file, voice: null, sticker: null,
+        reactions: [], edited: false, deleted: false, pending: true,
+        createdAt: new Date().toISOString(), readBy: [currentUser.id]
+      };
+      setMessages(prev => [...prev, optimistic]);
+    } else {
+      // Try P2P first for members in P2P-connected group
+      const otherMembers = (chat.members || []).filter(id => id !== currentUser.id);
+      let sentViaMesh = false;
+      if (chat.type === 'private' && otherMembers.length === 1) {
+        sentViaMesh = mesh.sendToPeer(otherMembers[0], { type: 'new_message', payload: { ...payload, senderId: currentUser.id, senderName: currentUser.username } });
+      }
+      // Always emit to server for persistence & multi-device delivery
+      socket?.emit('send_message', payload);
+    }
+
     setText(''); setFileToSend(null); setReplyingTo(null);
-    socket.emit('stop_typing', { chatId: chat.id });
+    if (socket) socket.emit('stop_typing', { chatId: chat.id });
   }
 
   function onKeyDown(e) {

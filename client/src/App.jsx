@@ -10,6 +10,10 @@ import { getTheme, applyTheme } from './theme.js';
 import { initPushNotifications, removePushToken } from './pushNotifications.js';
 import { initNative, tap } from './native.js';
 import UpdateChecker from './components/UpdateChecker.jsx';
+import NetworkBadge from './components/NetworkBadge.jsx';
+import { mesh } from './mesh.js';
+import { enqueue, flushQueue, queueSize } from './offlineQueue.js';
+import { discoverLan, startLanWatchdog } from './lanDiscovery.js';
 
 // Звук уведомления (короткий beep через Web Audio API)
 function playNotificationSound() {
@@ -54,6 +58,8 @@ export default function App() {
   const [mutedChats, setMutedChats] = useState(() => {
     try { return new Set(JSON.parse(localStorage.getItem('mutedChats') || '[]')); } catch { return new Set(); }
   });
+  const [meshPeerCount, setMeshPeerCount] = useState(0);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
   const selectedChatRef = useRef(null);
   const mutedRef = useRef(mutedChats);
 
@@ -75,7 +81,34 @@ export default function App() {
   }
 
   useEffect(() => { selectedChatRef.current = selectedChat; }, [selectedChat]);
-  useEffect(() => { applyTheme(getTheme()); initNative(); }, []);
+  useEffect(() => {
+    applyTheme(getTheme());
+    initNative();
+
+    // Online/offline detection
+    const onOnline = () => {
+      setIsOnline(true);
+      const sock = getSocket();
+      if (sock && queueSize() > 0) {
+        flushQueue(sock, (n) => { if (n > 0) console.log(`[Queue] Flushed ${n} messages`); });
+      }
+    };
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+
+    // LAN discovery
+    discoverLan().then(found => {
+      if (found) console.log('[LAN] Local server detected');
+    });
+    const watchdog = startLanWatchdog(15000);
+
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+      clearInterval(watchdog);
+    };
+  }, []);
 
   // Handle notification click from service worker
   useEffect(() => {
@@ -96,6 +129,34 @@ export default function App() {
     initPushNotifications(token);
 
     const socket = connectSocket(token);
+
+    // Init mesh P2P network
+    mesh.init(socket, user.id);
+    mesh.onStatusChange(({ peerId, connected }) => {
+      setMeshPeerCount(mesh.getConnectedPeers().length);
+    });
+    // Messages received via P2P data channel — treat same as server messages
+    mesh.onMessage(({ data }) => {
+      if (data.type === 'new_message') {
+        const msg = data.payload;
+        const isActive = selectedChatRef.current?.id === msg.chatId;
+        setChats(prev => prev.map(c => {
+          if (c.id !== msg.chatId) return c;
+          return { ...c, lastMessage: msg, unread: isActive ? 0 : (c.unread || 0) + 1 };
+        }));
+      }
+    });
+
+    // Flush offline queue on reconnect
+    socket.on('connect', () => {
+      if (queueSize() > 0) flushQueue(socket, n => console.log(`[Queue] Flushed ${n}`));
+    });
+
+    // Connect P2P to already-online users
+    socket.on('user_status', ({ userId: uid, online }) => {
+      if (online && uid !== user.id) mesh.connectToPeer(uid);
+      else if (!online) setMeshPeerCount(mesh.getConnectedPeers().length);
+    });
 
     socket.on('call_incoming', ({ fromUserId, fromUsername, callType }) => {
       setActiveCall({ status: 'incoming', otherUserId: fromUserId, otherUsername: fromUsername, callType });
@@ -162,7 +223,7 @@ export default function App() {
 
     loadChats(token);
 
-    return () => disconnectSocket();
+    return () => { mesh.destroy(); disconnectSocket(); };
   }, [user?.id]);
 
   async function loadChats(t) {
@@ -228,7 +289,7 @@ export default function App() {
   if (!user) return <Auth onAuth={handleAuth} />;
 
   return (
-    <div className={`app-layout ${selectedChat ? 'chat-open' : ''}`}>
+    <div className={`app-layout ${selectedChat ? 'chat-open' : ''} ${!isOnline ? 'offline-mode' : ''}`}>
       <Sidebar
         chats={chats}
         currentUser={user}
@@ -269,6 +330,7 @@ export default function App() {
         onDismiss={dismissToast}
         onClick={t => { const chat = chats.find(c => c.id === t.chatId); if (chat) handleSelectChat(chat); }}
       />
+      <NetworkBadge meshPeerCount={meshPeerCount} />
       <UpdateChecker />
     </div>
   );

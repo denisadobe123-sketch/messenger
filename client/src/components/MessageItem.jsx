@@ -216,7 +216,11 @@ export default function MessageItem({
 
         {msg.edited && <span className="msg-edited-label">изменено</span>}
         <span className="msg-time">{time}</span>
-        {isOwn && <span className={`msg-read ${isRead ? 'seen' : ''}`}>{isRead ? '✓✓' : '✓'}</span>}
+        {isOwn && (
+          msg.pending
+            ? <span className="msg-read msg-pending" title="В очереди — отправится при восстановлении связи">🕐</span>
+            : <span className={`msg-read ${isRead ? 'seen' : ''}`}>{isRead ? '✓✓' : '✓'}</span>
+        )}
       </div>
       </div>
     </div>

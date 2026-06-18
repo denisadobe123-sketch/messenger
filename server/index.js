@@ -7,6 +7,7 @@ const bcrypt = require('bcryptjs');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const webpush = require('web-push');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'messenger_secret_2024';
@@ -200,6 +201,22 @@ async function sendPushToUser(userId, title, body) {
 // ── Version / OTA ─────────────────────────────────────────────────────────────
 app.get('/version', (req, res) => {
   res.json({ version: APP_VERSION, apkUrl: APK_DOWNLOAD_URL });
+});
+
+// ── Network info (LAN discovery) ──────────────────────────────────────────────
+function getLocalIPs() {
+  const ips = [];
+  try {
+    for (const iface of Object.values(os.networkInterfaces())) {
+      for (const info of iface) {
+        if (info.family === 'IPv4' && !info.internal) ips.push(info.address);
+      }
+    }
+  } catch {}
+  return ips;
+}
+app.get('/network-info', (req, res) => {
+  res.json({ localIPs: getLocalIPs(), port: PORT, version: APP_VERSION });
 });
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
@@ -705,6 +722,35 @@ io.on('connection', (socket) => {
   socket.on('typing', ({ chatId }) => socket.to(chatId).emit('typing', { userId, username: socket.user.username, chatId }));
   socket.on('stop_typing', ({ chatId }) => socket.to(chatId).emit('stop_typing', { userId, chatId }));
   socket.on('join_chat', chatId => socket.join(chatId));
+
+  // ── WebRTC P2P Signaling ────────────────────────────────────────────────────
+  socket.on('rtc_offer',  ({ targetId, offer })     => emitToUser(targetId, 'rtc_offer',  { fromId: userId, offer }));
+  socket.on('rtc_answer', ({ targetId, answer })    => emitToUser(targetId, 'rtc_answer', { fromId: userId, answer }));
+  socket.on('rtc_ice',    ({ targetId, candidate }) => emitToUser(targetId, 'rtc_ice',    { fromId: userId, candidate }));
+  socket.on('rtc_hangup', ({ targetId })            => emitToUser(targetId, 'rtc_hangup', { fromId: userId }));
+
+  // ── Offline queue flush ─────────────────────────────────────────────────────
+  socket.on('flush_queue', ({ messages }) => {
+    if (!Array.isArray(messages)) return;
+    const db = DB;
+    for (const { chatId, text, file, sticker, voice, replyTo, clientId } of messages) {
+      const chat = db.chats.find(c => c.id === chatId && c.members.includes(userId));
+      if (!chat) continue;
+      if (db.messages.find(m => m.clientId === clientId)) continue; // deduplicate
+      const msg = {
+        id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+        clientId: clientId || null,
+        chatId, senderId: userId, senderName: socket.user.username,
+        text: text || null, file: file || null, voice: voice || null, sticker: sticker || null,
+        forwardOf: null, replyTo: null, reactions: [], edited: false, deleted: false,
+        createdAt: new Date().toISOString(), readBy: [userId]
+      };
+      db.messages.push(msg);
+      io.to(chatId).emit('new_message', msg);
+    }
+    if (messages.length) saveDB();
+    socket.emit('queue_flushed', { ok: true });
+  });
 
   socket.on('call_invite', ({ chatId, toUserId, callType }) => {
     if (isOnline(toUserId)) emitToUser(toUserId, 'call_incoming', { chatId, fromUserId: userId, fromUsername: socket.user.username, callType });
