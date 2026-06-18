@@ -3,7 +3,14 @@ import { getAvatarColor } from '../avatarColor.js';
 
 function getInitials(name) { return (name || '?')[0].toUpperCase(); }
 
-function previewText(msg) {
+const DRAFTS_KEY = 'chat_drafts';
+function getDraft(chatId) {
+  try { return JSON.parse(localStorage.getItem(DRAFTS_KEY) || '{}')[chatId] || ''; } catch { return ''; }
+}
+
+function previewText(msg, chatId) {
+  const draft = getDraft(chatId);
+  if (draft) return <><span className="chat-preview-draft">Черновик: </span>{draft.slice(0, 40)}</>;
   if (!msg) return 'Нет сообщений';
   if (msg.sticker) return msg.sticker;
   if (msg.voice) return '🎤 Голосовое';
@@ -75,8 +82,8 @@ export default function ChatItem({
         <div className="chat-info">
           <div className="chat-name">{isPinned && '📌 '}{chat.displayName}</div>
           <div className="chat-preview">
-            {chat.lastMessage?.senderId === currentUser.id && chat.lastMessage ? 'Вы: ' : ''}
-            {previewText(chat.lastMessage)}
+            {!getDraft(chat.id) && chat.lastMessage?.senderId === currentUser.id && chat.lastMessage ? 'Вы: ' : ''}
+            {previewText(chat.lastMessage, chat.id)}
           </div>
         </div>
         <div className="chat-meta">

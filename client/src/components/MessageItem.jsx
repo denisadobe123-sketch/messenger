@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import VoicePlayer from './VoicePlayer.jsx';
+import EmojiPicker from './EmojiPicker.jsx';
 
-const EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🔥'];
+const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🔥', '🎉', '👎'];
 
 function formatBytes(n) {
   if (n < 1024) return n + ' Б';
@@ -24,9 +25,10 @@ const SWIPE_REPLY_THRESHOLD = 60;
 export default function MessageItem({
   msg, isOwn, showSender, isRead, currentUserId, isPinned, highlighted,
   onReact, onReply, onEdit, onDelete, onPin, onUnpin, onScrollToReply, onForward,
-  selectMode, selected, onToggleSelect
+  onImageClick, selectMode, selected, onToggleSelect
 }) {
   const [showPicker, setShowPicker] = useState(false);
+  const [showFullEmoji, setShowFullEmoji] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [swipeX, setSwipeX] = useState(0);
   const menuRef = useRef(null);
@@ -141,9 +143,12 @@ export default function MessageItem({
 
       {msg.file && (
         isImage ? (
-          <a href={msg.file.url} target="_blank" rel="noreferrer">
-            <img src={msg.file.url} alt={msg.file.name} className="msg-image" />
-          </a>
+          <img
+            src={msg.file.url}
+            alt={msg.file.name}
+            className="msg-image"
+            onClick={() => onImageClick?.(msg.file.url)}
+          />
         ) : (
           <a href={msg.file.url} target="_blank" rel="noreferrer" className="msg-file" download={msg.file.name}>
             <span className="msg-file-icon">{fileIcon(msg.file.mimetype)}</span>
@@ -173,6 +178,9 @@ export default function MessageItem({
           {showMenu && (
             <div className="msg-context-menu">
               <button className="msg-context-item" onClick={() => { onReply?.(msg); setShowMenu(false); }}>↩️ Ответить</button>
+              {msg.text && (
+                <button className="msg-context-item" onClick={() => { navigator.clipboard?.writeText(msg.text); setShowMenu(false); }}>📋 Копировать</button>
+              )}
               <button className="msg-context-item" onClick={() => { onForward?.(msg); setShowMenu(false); }}>➡️ Переслать</button>
               {isPinned
                 ? <button className="msg-context-item" onClick={() => { onUnpin?.(); setShowMenu(false); }}>📌 Открепить</button>
@@ -190,9 +198,19 @@ export default function MessageItem({
         <div className="reaction-picker-wrap">
           <button className="reaction-btn" onClick={() => setShowPicker(p => !p)}>😊</button>
           {showPicker && (
-            <div className="reaction-picker">
-              {EMOJIS.map(e => <button key={e} className="reaction-option" onClick={() => handleReact(e)}>{e}</button>)}
+            <div className={`reaction-picker ${isOwn ? 'reaction-picker-left' : ''}`}>
+              {QUICK_REACTIONS.map(e => (
+                <button key={e} className="reaction-option" onClick={() => { handleReact(e); setShowPicker(false); }}>{e}</button>
+              ))}
+              <button className="reaction-option reaction-more" onClick={() => { setShowPicker(false); setShowFullEmoji(p => !p); }}>＋</button>
             </div>
+          )}
+          {showFullEmoji && (
+            <EmojiPicker
+              onPick={e => { handleReact(e); setShowFullEmoji(false); }}
+              onClose={() => setShowFullEmoji(false)}
+              style={{ position: 'absolute', bottom: '36px', [isOwn ? 'right' : 'left']: 0, zIndex: 200 }}
+            />
           )}
         </div>
 

@@ -1,9 +1,12 @@
 import { useState, useEffect, useRef, Fragment } from 'react';
 import MessageItem from './MessageItem.jsx';
 import StickerPicker from './StickerPicker.jsx';
+import EmojiPicker from './EmojiPicker.jsx';
 import { getSocket } from '../socket.js';
 import { API_URL } from '../api.js';
 import { tap } from '../native.js';
+
+const DRAFTS_KEY = 'chat_drafts';
 
 const STATUS_LABELS = { online: 'В сети', away: 'Отошёл', dnd: 'Не беспокоить', offline: 'Не в сети' };
 
@@ -52,6 +55,11 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
   const [showGroupInfo, setShowGroupInfo] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [lightboxImg, setLightboxImg] = useState(null);
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const [unreadBelow, setUnreadBelow] = useState(0);
+  const messagesWrapRef = useRef(null);
   const [firstUnreadId, setFirstUnreadId] = useState(null);
   const [backSwipeX, setBackSwipeX] = useState(0);
   const backSwipe = useRef({ x: 0, y: 0, dx: 0, active: false });
@@ -145,6 +153,54 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
       socket.off('stop_typing', onStopTyping);
     };
   }, [socket, chat?.id]);
+
+  // Load draft for this chat
+  useEffect(() => {
+    if (!chat?.id) return;
+    try {
+      const drafts = JSON.parse(localStorage.getItem(DRAFTS_KEY) || '{}');
+      setText(drafts[chat.id] || '');
+    } catch { setText(''); }
+  }, [chat?.id]);
+
+  // Save draft on text change
+  useEffect(() => {
+    if (!chat?.id) return;
+    const timer = setTimeout(() => {
+      try {
+        const drafts = JSON.parse(localStorage.getItem(DRAFTS_KEY) || '{}');
+        if (text.trim()) drafts[chat.id] = text;
+        else delete drafts[chat.id];
+        localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+      } catch {}
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [text, chat?.id]);
+
+  // Track scroll position for "scroll to bottom" button
+  useEffect(() => {
+    const el = messagesWrapRef.current;
+    if (!el) return;
+    function onScroll() {
+      const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      setIsAtBottom(distFromBottom < 80);
+      if (distFromBottom < 80) setUnreadBelow(0);
+    }
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, []);
+
+  // Count unread below when not at bottom
+  useEffect(() => {
+    if (!isAtBottom) {
+      setUnreadBelow(prev => prev + 1);
+    }
+  }, [messages.length]);
+
+  function scrollToBottom() {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    setUnreadBelow(0);
+  }
 
   function handleTextChange(e) {
     setText(e.target.value);
@@ -516,6 +572,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
 
       <div
         className={`messages-wrap ${isDragging ? 'dragging' : ''}`}
+        ref={messagesWrapRef}
         onDragEnter={onDragEnter} onDragLeave={onDragLeave} onDragOver={onDragOver} onDrop={onDrop}
       >
         {isDragging && (
@@ -551,6 +608,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
                 onUnpin={handleUnpin}
                 onScrollToReply={scrollToMessage}
                 onForward={handleForward}
+                onImageClick={setLightboxImg}
               />
               </Fragment>
             )
@@ -560,6 +618,22 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
         )}
         <div ref={bottomRef} />
       </div>
+
+      {!isAtBottom && (
+        <button className="scroll-to-bottom-fab" onClick={scrollToBottom} title="Вниз">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+          {unreadBelow > 0 && <span className="scroll-fab-badge">{unreadBelow > 99 ? '99+' : unreadBelow}</span>}
+        </button>
+      )}
+
+      {lightboxImg && (
+        <div className="lightbox-overlay" onClick={() => setLightboxImg(null)}>
+          <img src={lightboxImg} alt="" className="lightbox-img" onClick={e => e.stopPropagation()} />
+          <button className="lightbox-close" onClick={() => setLightboxImg(null)}>✕</button>
+        </div>
+      )}
 
       {replyingTo && (
         <div className="reply-preview">
@@ -609,8 +683,26 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
             onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'; }}
           />
           <div className="sticker-picker-wrap">
-            <button className="attach-btn" onClick={() => setShowStickers(p => !p)} title="Стикеры">😀</button>
-            {showStickers && <StickerPicker onPick={sendSticker} onClose={() => setShowStickers(false)} />}
+            <button className="attach-btn emoji-toggle-btn" onClick={() => setShowEmojiPicker(p => !p)} title="Эмодзи и стикеры">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10"/><path d="M8 13s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/>
+              </svg>
+            </button>
+            {showEmojiPicker && (
+              <div className="emoji-picker-popup">
+                <div className="emoji-picker-tabs">
+                  <button className={`emoji-tab ${!showStickers ? 'active' : ''}`} onClick={() => setShowStickers(false)}>😀 Эмодзи</button>
+                  <button className={`emoji-tab ${showStickers ? 'active' : ''}`} onClick={() => setShowStickers(true)}>🎭 Стикеры</button>
+                </div>
+                {showStickers
+                  ? <StickerPicker onPick={e => { sendSticker(e); setShowEmojiPicker(false); }} onClose={() => setShowEmojiPicker(false)} />
+                  : <EmojiPicker
+                      onPick={e => { setText(t => t + e); setShowEmojiPicker(false); }}
+                      onClose={() => setShowEmojiPicker(false)}
+                    />
+                }
+              </div>
+            )}
           </div>
           {!text.trim() && !fileToSend ? (
             <button className="voice-record-btn" onClick={startRecording} title="Голосовое сообщение">
