@@ -10,21 +10,23 @@ const fs = require('fs');
 const os = require('os');
 const webpush = require('web-push');
 
-// SMS.ru fallback (optional — only active when SMSRU_API_ID env var is set)
-const SMSRU_API_ID = process.env.SMSRU_API_ID || null;
-if (SMSRU_API_ID) console.log('✅ SMS.ru enabled');
+// SMSC.ru SMS (optional — active when SMSC_LOGIN + SMSC_PASSWORD env vars are set)
+const SMSC_LOGIN    = process.env.SMSC_LOGIN    || null;
+const SMSC_PASSWORD = process.env.SMSC_PASSWORD || null;
+if (SMSC_LOGIN) console.log('✅ SMSC.ru SMS enabled');
 
 async function sendSMS(toPhone, body) {
-  if (!SMSRU_API_ID || !toPhone) return false;
-  // normalize: strip spaces/dashes, ensure starts with 7 for RU numbers
+  if (!SMSC_LOGIN || !SMSC_PASSWORD || !toPhone) return false;
   const phone = toPhone.replace(/[\s\-\(\)]/g, '').replace(/^\+/, '');
   try {
-    const url = `https://sms.ru/sms/send?api_id=${SMSRU_API_ID}&to=${phone}&msg=${encodeURIComponent(body)}&json=1`;
+    const url = `https://smsc.ru/sys/send.php?login=${encodeURIComponent(SMSC_LOGIN)}&psw=${encodeURIComponent(SMSC_PASSWORD)}&phones=${phone}&mes=${encodeURIComponent(body)}&fmt=3&charset=utf-8`;
     const res = await fetch(url);
     const data = await res.json();
-    if (data.status === 'OK') return true;
-    console.error('SMS.ru error:', data.status_text || JSON.stringify(data));
-    return false;
+    if (data.error_code) {
+      console.error('SMSC error:', data.error, `(code ${data.error_code})`);
+      return false;
+    }
+    return true;
   } catch (e) { console.error('SMS error:', e.message); return false; }
 }
 
