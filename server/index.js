@@ -275,18 +275,16 @@ app.post('/auth/send-otp', async (req, res) => {
   otpStore.set(otpToken, { phone: phone.trim(), code, expiresAt: now + 10 * 60 * 1000, attempts: 0 });
 
   // Send SMS via SMS.ru
-  const smsSent = await sendSMS(phone.trim(), `Ваш код подтверждения Messenger: ${code}`);
+  const smsSent = await sendSMS(phone.trim(), `Kod: ${code}`);
 
-  if (!smsSent && SMSRU_API_ID) {
+  // Always log for debugging
+  console.log(`[OTP] ${phone} → ${code} (SMS ${smsSent ? 'sent' : 'failed'})`);
+
+  if (!smsSent && SMSC_LOGIN) {
     return res.status(500).json({ error: 'Не удалось отправить SMS. Проверь номер телефона.' });
   }
 
-  // Dev mode: if no SMS.ru configured, log code to console
-  if (!SMSRU_API_ID) {
-    console.log(`[DEV] OTP for ${phone}: ${code}`);
-  }
-
-  res.json({ otpToken, ...((!SMSRU_API_ID) ? { devCode: code } : {}) });
+  res.json({ otpToken });
 });
 
 // Step 2: verify OTP → login or auto-register
