@@ -66,13 +66,14 @@ export default function MessageItem({
     if (!swipingRef.current) return;
     const dx = e.touches[0].clientX - swipeStartRef.current;
     if (Math.abs(dx) > 8) clearTimeout(longPressTimer.current);
-    setSwipeX(Math.max(-40, Math.min(40, dx)));
+    // Ответ — только свайп влево; свайп вправо отдаём контейнеру (выход из чата)
+    setSwipeX(Math.max(-50, Math.min(0, dx)));
   }
   function onTouchEnd() {
     clearTimeout(longPressTimer.current);
     swipingRef.current = false;
     if (longPressedRef.current) { longPressedRef.current = false; setSwipeX(0); return; }
-    if (Math.abs(swipeX) > SWIPE_REPLY_THRESHOLD - 20 && !msg.deleted) onReply?.(msg);
+    if (swipeX < -(SWIPE_REPLY_THRESHOLD - 20) && !msg.deleted) onReply?.(msg);
     setSwipeX(0);
   }
 

@@ -217,7 +217,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   // ── Свайп вправо от левого края — выход из чата (как в ТГ) ────────────────
   function onWinTouchStart(e) {
     const t = e.touches[0];
-    backSwipe.current = { x: t.clientX, y: t.clientY, dx: 0, active: t.clientX < 36 };
+    backSwipe.current = { x: t.clientX, y: t.clientY, dx: 0, active: true };
   }
   function onWinTouchMove(e) {
     if (!backSwipe.current.active) return;
