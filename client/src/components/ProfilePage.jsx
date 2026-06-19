@@ -79,26 +79,26 @@ export default function ProfilePage({ user, token, onUpdate, onLogout }) {
   return (
     <div className="profile-page">
       <div className="profile-page-header">
-        <label htmlFor="profile-avatar-input" style={{ cursor: 'pointer', display: 'contents' }}>
+        {/* Input inside label — guaranteed to work on iOS/Android/Desktop */}
+        <label style={{ cursor: 'pointer', display: 'block', textAlign: 'center' }}>
           <div
             className="avatar lg"
-            style={{ cursor: 'pointer', ...(!avatarUrl ? { background: avatarBg } : {}) }}
+            style={{ cursor: 'pointer', margin: '0 auto', ...(!avatarUrl ? { background: avatarBg } : {}) }}
           >
             {avatarUrl ? <img src={avatarUrl} alt="avatar" /> : initials}
           </div>
+          <div className="avatar-upload-btn" style={{ marginTop: 8 }}>
+            {loading ? 'Загружаем...' : 'Сменить фото'}
+          </div>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            style={{ display: 'none' }}
+            onChange={uploadAvatar}
+            disabled={loading}
+          />
         </label>
-        <label htmlFor="profile-avatar-input" className="avatar-upload-btn" style={{ cursor: 'pointer' }}>
-          {loading ? 'Загружаем...' : 'Сменить фото'}
-        </label>
-        <input
-          id="profile-avatar-input"
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }}
-          onChange={uploadAvatar}
-          disabled={loading}
-        />
         <div className="profile-page-displayname">{displayName || user.username}</div>
         <div className="profile-page-handle">@{handle || user.username}</div>
       </div>

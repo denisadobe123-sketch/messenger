@@ -79,7 +79,6 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
 
   const bottomRef = useRef(null);
   const fileRef = useRef(null);
-  const imageRef = useRef(null);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const typingTimeout = useRef(null);
   const socket = getSocket();
@@ -760,24 +759,6 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
         </div>
       ) : (
         <div className="chat-input-area">
-          {/* Native label — works on iOS Safari without JS gesture chain */}
-          {/* Inputs must exist in DOM always so label htmlFor association works */}
-          <input id="chat-img-input" type="file" accept="image/*,video/*"
-            style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }}
-            onChange={e => {
-              const f = e.target.files?.[0];
-              if (f) setFileToSend(f);
-              e.target.value = '';
-              setShowAttachMenu(false);
-            }} />
-          <input id="chat-file-input" type="file"
-            style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }}
-            onChange={e => {
-              const f = e.target.files?.[0];
-              if (f) setFileToSend(f);
-              e.target.value = '';
-              setShowAttachMenu(false);
-            }} />
           <div style={{ position: 'relative' }}>
             <button className="attach-btn" onClick={() => setShowAttachMenu(p => !p)}>
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -786,11 +767,16 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
             </button>
             {showAttachMenu && (
               <div className="attach-menu">
-                <label htmlFor="chat-img-input" className="attach-menu-item">
+                {/* Input INSIDE label — most reliable on iOS/Android/Desktop */}
+                <label className="attach-menu-item">
                   <span className="attach-menu-icon">🖼</span> Фото / Видео
+                  <input type="file" accept="image/*,video/*" style={{ display: 'none' }}
+                    onChange={e => { const f = e.target.files?.[0]; if (f) setFileToSend(f); e.target.value = ''; setShowAttachMenu(false); }} />
                 </label>
-                <label htmlFor="chat-file-input" className="attach-menu-item">
+                <label className="attach-menu-item">
                   <span className="attach-menu-icon">📎</span> Файл / Документ
+                  <input type="file" style={{ display: 'none' }}
+                    onChange={e => { const f = e.target.files?.[0]; if (f) setFileToSend(f); e.target.value = ''; setShowAttachMenu(false); }} />
                 </label>
               </div>
             )}
