@@ -481,9 +481,10 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
       try {
         const res = await fetch(`${API_URL}/upload`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
         const data = await res.json();
+        if (!res.ok || !data.url) throw new Error(data.error || 'Upload failed');
         socket.emit('send_message', { chatId: chat.id, voice: { url: data.url, duration }, replyTo: replyingTo?.id || null });
         setReplyingTo(null);
-      } catch {}
+      } catch (e) { console.error('Voice upload error:', e); }
       setUploading(false);
     };
     recorder.stop();
@@ -497,9 +498,10 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     try {
       const res = await fetch(`${API_URL}/upload`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
       const data = await res.json();
+      if (!res.ok || !data.url) throw new Error(data.error || 'Upload failed');
       socket.emit('send_message', { chatId: chat.id, videoNote: { url: data.url }, replyTo: replyingTo?.id || null, burnAfter: burnAfter || null });
       setReplyingTo(null);
-    } catch {}
+    } catch (e) { console.error('VideoNote upload error:', e); }
     setUploading(false);
   }
 
@@ -544,10 +546,13 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
         </button>
         <div
           className={`avatar ${chat.type === 'group' ? 'group' : ''}`}
-          style={{ width: 38, height: 38, fontSize: 15, cursor: chat.type === 'group' ? 'pointer' : 'default' }}
+          style={{ width: 38, height: 38, fontSize: 15, cursor: chat.type === 'group' ? 'pointer' : 'default', ...(!chat.otherUserAvatar ? { background: undefined } : {}) }}
           onClick={() => chat.type === 'group' && setShowGroupInfo(true)}
         >
-          {(chat.displayName || '?')[0].toUpperCase()}
+          {chat.otherUserAvatar
+            ? <img src={chat.otherUserAvatar} alt={chat.displayName} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
+            : (chat.displayName || '?')[0].toUpperCase()
+          }
           {chat.type === 'private' && <span className={`status-dot ${isOnline ? otherStatus : 'offline'}`} />}
         </div>
         <div

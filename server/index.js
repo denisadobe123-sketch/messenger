@@ -171,6 +171,18 @@ const io = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'] } 
 // Trust Railway/Heroku proxy — makes req.protocol return 'https' correctly
 app.set('trust proxy', 1);
 
+// Resolve public base URL once at startup
+let _resolvedBaseUrl = process.env.BASE_URL ? process.env.BASE_URL.replace(/\/$/, '') : null;
+function resolveBaseUrl(req) {
+  if (_resolvedBaseUrl) return _resolvedBaseUrl;
+  const proto = (req.headers['x-forwarded-proto'] || '').split(',')[0].trim() || req.protocol;
+  const host = req.headers['x-forwarded-host'] || req.get('host');
+  const url = `${proto}://${host}`;
+  // Cache once we get a real https URL
+  if (proto === 'https') _resolvedBaseUrl = url;
+  return url;
+}
+
 const CLIENT_DIST = path.join(__dirname, '..', 'client', 'dist');
 const isProd = fs.existsSync(path.join(CLIENT_DIST, 'index.html'));
 
@@ -212,12 +224,15 @@ function authMiddleware(req, res, next) {
   catch { res.status(401).json({ error: 'Invalid token' }); }
 }
 
-function getBaseUrl(req) {
-  if (process.env.BASE_URL) return process.env.BASE_URL;
-  // X-Forwarded-Proto is set by Railway/Render/Heroku reverse proxies
-  const proto = (req.headers['x-forwarded-proto'] || '').split(',')[0].trim() || req.protocol;
-  const host  = req.headers['x-forwarded-host'] || req.get('host');
-  return `${proto}://${host}`;
+// BASE_URL must be set in Railway env vars. Falls back to inferring from request headers.
+function resolveBaseUrl(req) {
+  if (process.env.BASE_URL) return process.env.BASE_URL.replace(/\/$/, '');
+  if (req) {
+    const proto = (req.headers['x-forwarded-proto'] || '').split(',')[0].trim() || req.protocol;
+    const host  = req.headers['x-forwarded-host'] || req.get('host');
+    return `${proto}://${host}`;
+  }
+  return '';
 }
 
 function safeUser(u, includeEmail = false) {
@@ -423,7 +438,7 @@ app.post('/profile/avatar', authMiddleware, upload.single('avatar'), (req, res) 
     const buf = fs.readFileSync(req.file.path);
     // Store raw binary in DB, serve via /avatar/:id endpoint
     user.avatarData = { data: buf.toString('base64'), mime: req.file.mimetype || 'image/jpeg' };
-    user.avatar = `${getBaseUrl(req)}/avatar/${user.id}`;
+    user.avatar = `${resolveBaseUrl(req)}/avatar/${user.id}`;
     try { fs.unlinkSync(req.file.path); } catch {}
   } catch (e) {
     console.error('Avatar store error:', e.message);
@@ -659,7 +674,7 @@ app.post('/messages/queued', authMiddleware, async (req, res) => {
 // ── Upload ────────────────────────────────────────────────────────────────────
 app.post('/upload', authMiddleware, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
-  const url = `${getBaseUrl(req)}/uploads/${req.file.filename}`;
+  const url = `${resolveBaseUrl(req)}/uploads/${req.file.filename}`;
   console.log(`[upload] ${req.file.originalname} → ${url}`);
   res.json({ url, name: req.file.originalname, size: req.file.size, mimetype: req.file.mimetype });
 });
