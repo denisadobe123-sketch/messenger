@@ -182,9 +182,22 @@ app.use('/uploads', express.static(UPLOADS_DIR));
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOADS_DIR),
-  filename: (req, file, cb) => cb(null, `${Date.now()}_${file.originalname}`)
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase() || '';
+    cb(null, `${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext}`);
+  }
 });
-const upload = multer({ storage, limits: { fileSize: 50 * 1024 * 1024 } });
+const upload = multer({
+  storage,
+  limits: { fileSize: 100 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    // Block dangerous executables
+    const blocked = ['.exe', '.bat', '.cmd', '.sh', '.ps1', '.msi', '.apk'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (blocked.includes(ext)) return cb(new Error('Этот тип файла запрещён'));
+    cb(null, true);
+  }
+});
 
 function authMiddleware(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1];
@@ -197,11 +210,13 @@ function getBaseUrl(req) {
   return process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
 }
 
-function safeUser(u) {
-  return { id: u.id, username: u.username, handle: u.handle || u.username,
+function safeUser(u, includeEmail = false) {
+  const base = { id: u.id, username: u.username, handle: u.handle || u.username,
     displayName: u.displayName || u.username,
     avatar: u.avatar || null, bio: u.bio || null, status: u.status || 'online',
     lastSeen: u.lastSeen || null };
+  if (includeEmail && u.email) base.email = u.email;
+  return base;
 }
 
 function generateHandle(base) {
@@ -331,7 +346,7 @@ app.post('/auth/verify-otp', async (req, res) => {
   }
 
   const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET);
-  res.json({ token, user: safeUser(user) });
+  res.json({ token, user: safeUser(user, true) });
 });
 
 // Legacy login with password (kept for existing accounts)
@@ -376,7 +391,7 @@ app.put('/profile', authMiddleware, (req, res) => {
   }
   saveDB();
   io.emit('user_profile_updated', safeUser(user));
-  res.json(safeUser(user));
+  res.json(safeUser(user, true));
 });
 
 app.post('/profile/avatar', authMiddleware, upload.single('avatar'), (req, res) => {
@@ -387,7 +402,7 @@ app.post('/profile/avatar', authMiddleware, upload.single('avatar'), (req, res) 
   user.avatar = `${getBaseUrl(req)}/uploads/${req.file.filename}`;
   saveDB();
   io.emit('user_profile_updated', safeUser(user));
-  res.json(safeUser(user));
+  res.json(safeUser(user, true));
 });
 
 app.put('/change-password', authMiddleware, async (req, res) => {
@@ -614,7 +629,17 @@ app.post('/messages/queued', authMiddleware, async (req, res) => {
 // ── Upload ────────────────────────────────────────────────────────────────────
 app.post('/upload', authMiddleware, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
-  res.json({ url: `${getBaseUrl(req)}/uploads/${req.file.filename}`, name: req.file.originalname, size: req.file.size, mimetype: req.file.mimetype });
+  res.json({
+    url: `${getBaseUrl(req)}/uploads/${req.file.filename}`,
+    name: req.file.originalname,
+    size: req.file.size,
+    mimetype: req.file.mimetype
+  });
+});
+
+app.use((err, req, res, next) => {
+  if (err?.message) return res.status(400).json({ error: err.message });
+  next(err);
 });
 
 // ── Socket.io ─────────────────────────────────────────────────────────────────
@@ -661,7 +686,7 @@ io.on('connection', (socket) => {
   if (wasOffline) io.emit('user_status', { userId, online: true });
 
   socket.on('send_message', async (data) => {
-    const { chatId, text, file, replyTo, voice, sticker, forwardOf, burnAfter } = data;
+    const { chatId, text, file, replyTo, voice, sticker, forwardOf, burnAfter, videoNote } = data;
     const db = DB;
     const chat = db.chats.find(c => c.id === chatId);
     if (!chat || !chat.members.includes(userId)) return;
@@ -675,6 +700,7 @@ io.on('connection', (socket) => {
 
     const message = { id: Date.now().toString(), chatId, senderId: userId, senderName: socket.user.username,
       text: text || null, file: file || null, voice: voice || null, sticker: sticker || null,
+      videoNote: videoNote || null,
       forwardOf: forwardOf || null, replyTo: replySnippet, reactions: [], edited: false, deleted: false,
       createdAt: new Date().toISOString(), readBy: [userId],
       burnAfter: burnAfter || null,

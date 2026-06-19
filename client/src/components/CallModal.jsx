@@ -154,17 +154,20 @@ export default function CallModal({ call, socket, currentUserId, onEnd }) {
     return pc;
   }
 
+  async function getMedia() {
+    return navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 48000 },
+      video: isVideo ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } } : false
+    });
+  }
+
   async function startCall() {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: isVideo });
+      const stream = await getMedia();
       localStreamRef.current = stream;
       if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-
       const pc = await createPeerConnection();
       stream.getTracks().forEach(t => pc.addTrack(t, stream));
-
-      // Offer не отправляем сразу — ждём call_accepted, иначе у собеседника
-      // peer-соединение ещё не создано и сигнал потеряется (гонка состояний).
       socket.emit('call_invite', { toUserId: otherUserId, callType: call.callType });
     } catch {
       alert('Нет доступа к камере/микрофону');
@@ -174,7 +177,7 @@ export default function CallModal({ call, socket, currentUserId, onEnd }) {
 
   async function prepareIncoming() {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: isVideo });
+      const stream = await getMedia();
       localStreamRef.current = stream;
       if (localVideoRef.current) localVideoRef.current.srcObject = stream;
       await createPeerConnection();

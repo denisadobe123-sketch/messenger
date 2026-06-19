@@ -1635,3 +1635,100 @@ body {
 .offline-ble-badge { font-size: 10px; margin-left: 4px; opacity: 0.6; }
 
 .mesh-btn { color: var(--accent); }
+
+/* ── Video Note (кружочки) ─────────────────────────────────────────── */
+.videonote-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,0.85);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(6px);
+}
+.videonote-recorder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+.videonote-circle-wrap {
+  position: relative;
+  width: 220px;
+  height: 220px;
+}
+.videonote-preview {
+  width: 220px;
+  height: 220px;
+  object-fit: cover;
+  border-radius: 50%;
+  border: 3px solid rgba(255,255,255,0.2);
+  transform: scaleX(-1);
+}
+.videonote-progress {
+  position: absolute;
+  inset: -4px;
+  width: calc(100% + 8px);
+  height: calc(100% + 8px);
+  pointer-events: none;
+}
+.videonote-timer {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.6);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+.videonote-controls {
+  display: flex;
+  gap: 16px;
+}
+.videonote-btn {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  font-size: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.15s, opacity 0.15s;
+}
+.videonote-btn:active { transform: scale(0.9); }
+.videonote-btn.cancel { background: rgba(255,255,255,0.15); color: #fff; }
+.videonote-btn.record { background: #ff4444; color: #fff; }
+.videonote-btn.stop   { background: rgba(255,255,255,0.2); color: #fff; width: 70px; height: 70px; font-size: 26px; }
+
+/* Video note player (circle in chat) */
+.videonote-player {
+  position: relative;
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  overflow: hidden;
+  cursor: pointer;
+  background: #000;
+  border: 3px solid var(--accent);
+  box-shadow: 0 4px 20px rgba(0,229,192,0.3);
+}
+.videonote-player-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.videonote-play-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.35);
+  border-radius: 50%;
+}

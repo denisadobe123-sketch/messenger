@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, Fragment } from 'react';
 import MessageItem from './MessageItem.jsx';
 import StickerPicker from './StickerPicker.jsx';
 import EmojiPicker from './EmojiPicker.jsx';
+import { VideoNoteRecorder } from './VideoNote.jsx';
 import { getSocket } from '../socket.js';
 import { API_URL } from '../api.js';
 import { tap } from '../native.js';
@@ -59,6 +60,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [burnAfter, setBurnAfter] = useState(null);
   const [showBurnMenu, setShowBurnMenu] = useState(false);
+  const [showVideoRecorder, setShowVideoRecorder] = useState(false);
   const [lightboxImg, setLightboxImg] = useState(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [unreadBelow, setUnreadBelow] = useState(0);
@@ -231,8 +233,14 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
       form.append('file', fileToSend);
       try {
         const res = await fetch(`${API_URL}/upload`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
-        fileData = await res.json();
-      } catch {}
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Ошибка загрузки');
+        fileData = data;
+      } catch (e) {
+        setUploading(false);
+        alert('Не удалось загрузить файл: ' + (e.message || 'ошибка сети'));
+        return;
+      }
       setUploading(false);
     }
 
@@ -450,6 +458,20 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     recorder.stop();
   }
 
+  async function sendVideoNote(blob) {
+    setShowVideoRecorder(false);
+    const form = new FormData();
+    form.append('file', blob, `videonote_${Date.now()}.webm`);
+    setUploading(true);
+    try {
+      const res = await fetch(`${API_URL}/upload`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
+      const data = await res.json();
+      socket.emit('send_message', { chatId: chat.id, videoNote: { url: data.url }, replyTo: replyingTo?.id || null, burnAfter: burnAfter || null });
+      setReplyingTo(null);
+    } catch {}
+    setUploading(false);
+  }
+
   const otherId = chat?.type === 'private' ? chat.members?.find(id => id !== currentUser.id) : null;
   const isOnline = otherId ? onlineUsers.has(otherId) : false;
   const otherStatus = otherId ? (userStatuses?.get(otherId) || (isOnline ? 'online' : 'offline')) : 'online';
@@ -654,6 +676,12 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
         </div>
       )}
 
+      {showVideoRecorder && (
+        <div className="videonote-overlay">
+          <VideoNoteRecorder onSend={sendVideoNote} onCancel={() => setShowVideoRecorder(false)} />
+        </div>
+      )}
+
       {burnAfter && (
         <div className="burn-mode-banner">
           🔥 Сообщения самоуничтожатся через {burnAfter < 60 ? `${burnAfter}с` : burnAfter < 3600 ? `${burnAfter/60}м` : burnAfter < 86400 ? `${burnAfter/3600}ч` : '24ч'}
@@ -754,11 +782,18 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
             )}
           </div>
           {!text.trim() && !fileToSend ? (
-            <button className="voice-record-btn" onClick={startRecording} title="Голосовое сообщение">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/>
-              </svg>
-            </button>
+            <>
+              <button className="voice-record-btn" onClick={() => setShowVideoRecorder(true)} title="Видео-кружок" style={{ marginRight: 2 }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8" fill="currentColor" stroke="none"/>
+                </svg>
+              </button>
+              <button className="voice-record-btn" onClick={startRecording} title="Голосовое сообщение">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/>
+                </svg>
+              </button>
+            </>
           ) : (
             <button className="send-btn" onClick={send} disabled={uploading}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

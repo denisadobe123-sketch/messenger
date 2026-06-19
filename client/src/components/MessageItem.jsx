@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import VoicePlayer from './VoicePlayer.jsx';
 import EmojiPicker from './EmojiPicker.jsx';
+import { VideoNotePlayer } from './VideoNote.jsx';
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🔥', '🎉', '👎'];
 
@@ -154,6 +155,7 @@ export default function MessageItem({
         </div>
       )}
 
+      {msg.videoNote && <VideoNotePlayer url={msg.videoNote.url} />}
       {msg.voice && <VoicePlayer url={msg.voice.url} duration={msg.voice.duration} />}
 
       {msg.file && (
