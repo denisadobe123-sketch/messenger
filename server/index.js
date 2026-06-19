@@ -298,7 +298,7 @@ app.post('/auth/send-otp', async (req, res) => {
   res.json({ otpToken });
 
   sendOtpEmail(email.trim(), code).then(sent => {
-    console.log(`[OTP] ${email} → ${code} (email ${sent ? 'sent' : 'failed'})`);
+    console.log(`[OTP] ${email} → ${code} (email ${sent ? 'sent' : 'failed'}) mailer=${!!mailer} GMAIL_USER=${GMAIL_USER || 'NOT SET'}`);
   });
 });
 
