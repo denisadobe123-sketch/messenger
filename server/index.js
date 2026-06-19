@@ -661,7 +661,7 @@ io.on('connection', (socket) => {
   if (wasOffline) io.emit('user_status', { userId, online: true });
 
   socket.on('send_message', async (data) => {
-    const { chatId, text, file, replyTo, voice, sticker, forwardOf } = data;
+    const { chatId, text, file, replyTo, voice, sticker, forwardOf, burnAfter } = data;
     const db = DB;
     const chat = db.chats.find(c => c.id === chatId);
     if (!chat || !chat.members.includes(userId)) return;
@@ -676,10 +676,24 @@ io.on('connection', (socket) => {
     const message = { id: Date.now().toString(), chatId, senderId: userId, senderName: socket.user.username,
       text: text || null, file: file || null, voice: voice || null, sticker: sticker || null,
       forwardOf: forwardOf || null, replyTo: replySnippet, reactions: [], edited: false, deleted: false,
-      createdAt: new Date().toISOString(), readBy: [userId] };
+      createdAt: new Date().toISOString(), readBy: [userId],
+      burnAfter: burnAfter || null,
+      burnAt: burnAfter ? new Date(Date.now() + burnAfter * 1000).toISOString() : null };
     db.messages.push(message);
     saveDB();
     io.to(chatId).emit('new_message', message);
+
+    // Auto-delete after burnAfter seconds
+    if (burnAfter) {
+      setTimeout(() => {
+        const m = DB.messages.find(x => x.id === message.id);
+        if (m && !m.deleted) {
+          m.deleted = true; m.text = null; m.file = null; m.voice = null; m.sticker = null;
+          saveDB();
+          io.to(chatId).emit('message_deleted', { messageId: message.id, burned: true });
+        }
+      }, burnAfter * 1000);
+    }
 
     // Push уведомления — FCM + Web Push + SMS fallback для оффлайн
     const pushBody = sticker || text || (voice ? '🎤 Голосовое' : '📎 Файл');

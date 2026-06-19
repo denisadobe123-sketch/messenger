@@ -22,10 +22,25 @@ function fileIcon(mime) {
 
 const SWIPE_REPLY_THRESHOLD = 60;
 
+const BURN_LABELS = { 5: '5с', 60: '1м', 3600: '1ч', 86400: '24ч' };
+
+function BurnCountdown({ burnAt }) {
+  const [left, setLeft] = useState(() => Math.max(0, Math.ceil((new Date(burnAt) - Date.now()) / 1000)));
+  useEffect(() => {
+    if (left <= 0) return;
+    const t = setInterval(() => setLeft(p => Math.max(0, p - 1)), 1000);
+    return () => clearInterval(t);
+  }, []);
+  if (left <= 0) return <span className="burn-timer">🔥 сейчас</span>;
+  if (left < 60) return <span className="burn-timer">🔥 {left}с</span>;
+  if (left < 3600) return <span className="burn-timer">🔥 {Math.ceil(left/60)}м</span>;
+  return <span className="burn-timer">🔥 {Math.ceil(left/3600)}ч</span>;
+}
+
 export default function MessageItem({
   msg, isOwn, showSender, isRead, currentUserId, isPinned, highlighted,
   onReact, onReply, onEdit, onDelete, onPin, onUnpin, onScrollToReply, onForward,
-  onImageClick, selectMode, selected, onToggleSelect
+  onImageClick, selectMode, selected, onToggleSelect, chatMemberCount
 }) {
   const [showPicker, setShowPicker] = useState(false);
   const [showFullEmoji, setShowFullEmoji] = useState(false);
@@ -214,12 +229,17 @@ export default function MessageItem({
           )}
         </div>
 
+        {msg.burnAt && <BurnCountdown burnAt={msg.burnAt} />}
         {msg.edited && <span className="msg-edited-label">изменено</span>}
         <span className="msg-time">{time}</span>
         {isOwn && (
           msg.pending
-            ? <span className="msg-read msg-pending" title="В очереди — отправится при восстановлении связи">🕐</span>
-            : <span className={`msg-read ${isRead ? 'seen' : ''}`}>{isRead ? '✓✓' : '✓'}</span>
+            ? <span className="msg-read msg-pending" title="В очереди">🕐</span>
+            : chatMemberCount > 2
+              ? <span className="msg-read seen" title={`Прочитано ${(msg.readBy?.length || 1) - 1} из ${chatMemberCount - 1}`}>
+                  {msg.readBy?.length > 1 ? `✓✓ ${msg.readBy.length - 1}` : '✓'}
+                </span>
+              : <span className={`msg-read ${isRead ? 'seen' : ''}`}>{isRead ? '✓✓' : '✓'}</span>
         )}
       </div>
       </div>

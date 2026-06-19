@@ -6,7 +6,6 @@ import { getSocket } from '../socket.js';
 import { API_URL } from '../api.js';
 import { tap } from '../native.js';
 import { enqueue } from '../offlineQueue.js';
-import { mesh } from '../mesh.js';
 
 const DRAFTS_KEY = 'chat_drafts';
 
@@ -58,6 +57,8 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   const [showGroupInfo, setShowGroupInfo] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [burnAfter, setBurnAfter] = useState(null);
+  const [showBurnMenu, setShowBurnMenu] = useState(false);
   const [lightboxImg, setLightboxImg] = useState(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [unreadBelow, setUnreadBelow] = useState(0);
@@ -235,13 +236,11 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
       setUploading(false);
     }
 
-    const payload = { chatId: chat.id, text: text.trim() || null, file: fileData, replyTo: replyingTo?.id || null };
+    const payload = { chatId: chat.id, text: text.trim() || null, file: fileData, replyTo: replyingTo?.id || null, burnAfter: burnAfter || null };
     tap('light');
 
     if (!navigator.onLine) {
-      // Queue for later delivery (async IndexedDB + Background Sync registration)
       const queued = await enqueue(payload);
-      // Show optimistic message locally
       const optimistic = {
         id: queued.clientId, clientId: queued.clientId, chatId: chat.id,
         senderId: currentUser.id, senderName: currentUser.username,
@@ -251,13 +250,6 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
       };
       setMessages(prev => [...prev, optimistic]);
     } else {
-      // Try P2P first for members in P2P-connected group
-      const otherMembers = (chat.members || []).filter(id => id !== currentUser.id);
-      let sentViaMesh = false;
-      if (chat.type === 'private' && otherMembers.length === 1) {
-        sentViaMesh = mesh.sendToPeer(otherMembers[0], { type: 'new_message', payload: { ...payload, senderId: currentUser.id, senderName: currentUser.username } });
-      }
-      // Always emit to server for persistence & multi-device delivery
       socket?.emit('send_message', payload);
     }
 
@@ -635,6 +627,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
                 onScrollToReply={scrollToMessage}
                 onForward={handleForward}
                 onImageClick={setLightboxImg}
+                chatMemberCount={chat.members?.length || 2}
               />
               </Fragment>
             )
@@ -658,6 +651,12 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
         <div className="lightbox-overlay" onClick={() => setLightboxImg(null)}>
           <img src={lightboxImg} alt="" className="lightbox-img" onClick={e => e.stopPropagation()} />
           <button className="lightbox-close" onClick={() => setLightboxImg(null)}>✕</button>
+        </div>
+      )}
+
+      {burnAfter && (
+        <div className="burn-mode-banner">
+          🔥 Сообщения самоуничтожатся через {burnAfter < 60 ? `${burnAfter}с` : burnAfter < 3600 ? `${burnAfter/60}м` : burnAfter < 86400 ? `${burnAfter/3600}ч` : '24ч'}
         </div>
       )}
 
@@ -703,6 +702,30 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
               <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
             </svg>
           </button>
+          <div style={{ position: 'relative' }}>
+            <button
+              className="attach-btn"
+              onClick={() => setShowBurnMenu(p => !p)}
+              title="Самоуничтожение"
+              style={{ color: burnAfter ? '#ff6b6b' : 'var(--text-secondary)', fontSize: 18 }}
+            >🔥</button>
+            {showBurnMenu && (
+              <div className="msg-context-menu" style={{ bottom: 44, left: 0, top: 'auto', minWidth: 160 }}>
+                {[
+                  { label: 'Выкл', val: null },
+                  { label: '5 секунд', val: 5 },
+                  { label: '1 минута', val: 60 },
+                  { label: '1 час', val: 3600 },
+                  { label: '24 часа', val: 86400 },
+                ].map(o => (
+                  <button key={String(o.val)} className={`msg-context-item ${burnAfter === o.val ? 'active' : ''}`}
+                    onClick={() => { setBurnAfter(o.val); setShowBurnMenu(false); }}>
+                    {burnAfter === o.val ? '✓ ' : ''}{o.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <textarea
             className="msg-input" placeholder="Написать сообщение..." value={text}
             onChange={handleTextChange} onKeyDown={onKeyDown} rows={1}
