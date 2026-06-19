@@ -161,6 +161,14 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     };
   }, [socket, chat?.id]);
 
+  // Close attach/burn menus on outside tap
+  useEffect(() => {
+    if (!showAttachMenu && !showBurnMenu) return;
+    const close = () => { setShowAttachMenu(false); setShowBurnMenu(false); };
+    document.addEventListener('pointerdown', close, true);
+    return () => document.removeEventListener('pointerdown', close, true);
+  }, [showAttachMenu, showBurnMenu]);
+
   // Load draft for this chat
   useEffect(() => {
     if (!chat?.id) return;
@@ -411,17 +419,24 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
 
   // ── Voice recording ─────────────────────────────────────────────────────
   function getAudioMimeType() {
+    if (typeof MediaRecorder === 'undefined') return '';
     const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
-    for (const t of types) { if (MediaRecorder.isTypeSupported(t)) return t; }
+    for (const t of types) { try { if (MediaRecorder.isTypeSupported(t)) return t; } catch {} }
     return '';
   }
 
   async function startRecording() {
+    if (typeof MediaRecorder === 'undefined') {
+      alert('Запись не поддерживается в этом браузере');
+      return;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       recordStreamRef.current = stream;
       const mimeType = getAudioMimeType();
-      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      let recorder;
+      try { recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream); }
+      catch { recorder = new MediaRecorder(stream); }
       audioChunksRef.current = [];
       recorder.ondataavailable = e => { if (e.data?.size > 0) audioChunksRef.current.push(e.data); };
       recorder.start(100);
@@ -451,9 +466,10 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
       clearInterval(recordIntervalRef.current);
       setRecording(false); setRecordTime(0);
 
-      const mimeType = audioChunksRef.current[0]?.type || 'audio/webm';
-      const ext = mimeType.includes('mp4') ? 'm4a' : mimeType.includes('ogg') ? 'ogg' : 'webm';
-      const blob = new Blob(audioChunksRef.current, { type: mimeType });
+      const recMime = mediaRecorderRef.current?.mimeType || audioChunksRef.current[0]?.type || '';
+      const ext = recMime.includes('mp4') ? 'm4a' : recMime.includes('ogg') ? 'ogg' : 'webm';
+      const blobType = recMime || 'audio/webm';
+      const blob = new Blob(audioChunksRef.current, { type: blobType });
       const form = new FormData();
       form.append('file', blob, `voice_${Date.now()}.${ext}`);
 
@@ -469,10 +485,10 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     recorder.stop();
   }
 
-  async function sendVideoNote(blob) {
+  async function sendVideoNote(blob, ext = 'webm') {
     setShowVideoRecorder(false);
     const form = new FormData();
-    form.append('file', blob, `videonote_${Date.now()}.webm`);
+    form.append('file', blob, `videonote_${Date.now()}.${ext}`);
     setUploading(true);
     try {
       const res = await fetch(`${API_URL}/upload`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
@@ -735,9 +751,12 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
         </div>
       ) : (
         <div className="chat-input-area">
-          <input ref={imageRef} type="file" accept="image/*,video/*" style={{ display: 'none' }}
+          {/* Native label — works on iOS Safari without JS gesture chain */}
+          <input id="chat-img-input" type="file" accept="image/*,video/*"
+            style={{ display: 'none' }} ref={imageRef}
             onChange={e => { const f = e.target.files?.[0]; if (f) setFileToSend(f); e.target.value = ''; }} />
-          <input ref={fileRef} type="file" accept="*/*" style={{ display: 'none' }}
+          <input id="chat-file-input" type="file"
+            style={{ display: 'none' }} ref={fileRef}
             onChange={e => { const f = e.target.files?.[0]; if (f) setFileToSend(f); e.target.value = ''; }} />
           <div style={{ position: 'relative' }}>
             <button className="attach-btn" onClick={() => setShowAttachMenu(p => !p)}>
@@ -746,13 +765,13 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
               </svg>
             </button>
             {showAttachMenu && (
-              <div className="attach-menu">
-                <button className="attach-menu-item" onClick={() => { setShowAttachMenu(false); imageRef.current?.click(); }}>
+              <div className="attach-menu" onClick={() => setShowAttachMenu(false)}>
+                <label htmlFor="chat-img-input" className="attach-menu-item">
                   <span className="attach-menu-icon">🖼</span> Фото / Видео
-                </button>
-                <button className="attach-menu-item" onClick={() => { setShowAttachMenu(false); fileRef.current?.click(); }}>
-                  <span className="attach-menu-icon">📎</span> Файл
-                </button>
+                </label>
+                <label htmlFor="chat-file-input" className="attach-menu-item">
+                  <span className="attach-menu-icon">📎</span> Файл / Документ
+                </label>
               </div>
             )}
           </div>

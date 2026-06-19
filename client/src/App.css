@@ -1669,6 +1669,13 @@ body {
   width: min(260px, 70vw);
   height: min(260px, 70vw);
 }
+.videonote-mirror {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  overflow: hidden;
+  transform: scaleX(-1);
+}
 .videonote-preview {
   width: 100%;
   height: 100%;
@@ -1676,7 +1683,13 @@ body {
   border-radius: 50%;
   display: block;
   background: #111;
-  transform: scaleX(-1);
+}
+.videonote-error {
+  color: #ff6b6b;
+  text-align: center;
+  font-size: 14px;
+  padding: 0 20px;
+  line-height: 1.5;
 }
 .videonote-svg {
   position: absolute;
@@ -1759,7 +1772,7 @@ body {
   padding: 6px;
   min-width: 170px;
   box-shadow: 0 8px 32px rgba(0,0,0,0.3);
-  z-index: 100;
+  z-index: 500;
   animation: msgPop 0.18s cubic-bezier(0.34,1.56,0.64,1) both;
 }
 .attach-menu-item {
