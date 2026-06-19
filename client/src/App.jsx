@@ -11,12 +11,8 @@ import { initPushNotifications, removePushToken } from './pushNotifications.js';
 import { initNative, tap } from './native.js';
 import UpdateChecker from './components/UpdateChecker.jsx';
 import NetworkBadge from './components/NetworkBadge.jsx';
-import OfflineChat from './components/OfflineChat.jsx';
-import { mesh } from './mesh.js';
 import { enqueue, flushQueue, queueSize } from './offlineQueue.js';
-import { discoverLan, startLanWatchdog } from './lanDiscovery.js';
 
-// Звук уведомления (короткий beep через Web Audio API)
 function playNotificationSound() {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -59,9 +55,7 @@ export default function App() {
   const [mutedChats, setMutedChats] = useState(() => {
     try { return new Set(JSON.parse(localStorage.getItem('mutedChats') || '[]')); } catch { return new Set(); }
   });
-  const [meshPeerCount, setMeshPeerCount] = useState(0);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
-  const [showOfflineChat, setShowOfflineChat] = useState(false);
   const selectedChatRef = useRef(null);
   const mutedRef = useRef(mutedChats);
 
@@ -83,11 +77,11 @@ export default function App() {
   }
 
   useEffect(() => { selectedChatRef.current = selectedChat; }, [selectedChat]);
+
   useEffect(() => {
     applyTheme(getTheme());
     initNative();
 
-    // Online/offline detection
     const onOnline = async () => {
       setIsOnline(true);
       const sock = getSocket();
@@ -99,21 +93,12 @@ export default function App() {
     const onOffline = () => setIsOnline(false);
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
-
-    // LAN discovery
-    discoverLan().then(found => {
-      if (found) console.log('[LAN] Local server detected');
-    });
-    const watchdog = startLanWatchdog(15000);
-
     return () => {
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
-      clearInterval(watchdog);
     };
   }, []);
 
-  // Handle messages from service worker (notification click + token requests)
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
     function onSwMessage(e) {
@@ -121,11 +106,9 @@ export default function App() {
         const chat = chats.find(c => c.id === e.data.chatId);
         if (chat) handleSelectChat(chat);
       }
-      // SW requests token for Background Sync HTTP calls
       if (e.data?.type === 'GET_TOKEN' && e.ports?.[0]) {
         e.ports[0].postMessage({ token: localStorage.getItem('token') || '' });
       }
-      // SW flushed queued messages successfully
       if (e.data?.type === 'QUEUE_FLUSHED') {
         console.log('[SW] Background Sync flushed', e.data.clientIds?.length, 'messages');
       }
@@ -141,33 +124,15 @@ export default function App() {
 
     const socket = connectSocket(token);
 
-    // Init mesh P2P network
-    mesh.init(socket, user.id);
-    mesh.onStatusChange(({ peerId, connected }) => {
-      setMeshPeerCount(mesh.getConnectedPeers().length);
-    });
-    // Messages received via P2P data channel — treat same as server messages
-    mesh.onMessage(({ data }) => {
-      if (data.type === 'new_message') {
-        const msg = data.payload;
-        const isActive = selectedChatRef.current?.id === msg.chatId;
-        setChats(prev => prev.map(c => {
-          if (c.id !== msg.chatId) return c;
-          return { ...c, lastMessage: msg, unread: isActive ? 0 : (c.unread || 0) + 1 };
-        }));
-      }
-    });
-
-    // Flush offline queue on reconnect
     socket.on('connect', async () => {
       const sz = await queueSize();
       if (sz > 0) flushQueue(socket, n => console.log(`[Queue] Flushed ${n}`));
     });
 
-    // Connect P2P to already-online users
-    socket.on('user_status', ({ userId: uid, online }) => {
-      if (online && uid !== user.id) mesh.connectToPeer(uid);
-      else if (!online) setMeshPeerCount(mesh.getConnectedPeers().length);
+    socket.on('user_status', ({ userId, online, lastSeen, status }) => {
+      setOnlineUsers(prev => { const n = new Set(prev); online ? n.add(userId) : n.delete(userId); return n; });
+      if (lastSeen) setUserLastSeen(prev => new Map(prev).set(userId, lastSeen));
+      if (status) setUserStatuses(prev => new Map(prev).set(userId, status));
     });
 
     socket.on('call_incoming', ({ fromUserId, fromUsername, callType }) => {
@@ -175,13 +140,8 @@ export default function App() {
     });
 
     socket.on('call_unavailable', () => {
-      alert('Пользователь не в сети');
+      pushToast({ title: 'Недоступен', body: 'Пользователь не в сети', type: 'error' });
       setActiveCall(null);
-    });
-
-    socket.on('user_status', ({ userId, online, lastSeen }) => {
-      setOnlineUsers(prev => { const n = new Set(prev); online ? n.add(userId) : n.delete(userId); return n; });
-      if (lastSeen) setUserLastSeen(prev => new Map(prev).set(userId, lastSeen));
     });
 
     socket.on('chat_deleted', ({ chatId }) => {
@@ -235,7 +195,7 @@ export default function App() {
 
     loadChats(token);
 
-    return () => { mesh.destroy(); disconnectSocket(); };
+    return () => { disconnectSocket(); };
   }, [user?.id]);
 
   async function loadChats(t) {
@@ -292,8 +252,6 @@ export default function App() {
     const merged = { ...user, ...updatedUser };
     setUser(merged);
     localStorage.setItem('user', JSON.stringify(merged));
-
-    // Обновить статус через socket
     const socket = getSocket();
     if (socket && updatedUser.status) socket.emit('set_status', { status: updatedUser.status });
   }
@@ -314,7 +272,6 @@ export default function App() {
         mutedChats={mutedChats}
         onToggleMute={toggleMute}
         onDeleteChat={deleteChat}
-        onOpenMesh={() => setShowOfflineChat(true)}
         token={token}
         onProfileUpdate={handleProfileUpdate}
         onLogout={handleLogout}
@@ -343,10 +300,7 @@ export default function App() {
         onDismiss={dismissToast}
         onClick={t => { const chat = chats.find(c => c.id === t.chatId); if (chat) handleSelectChat(chat); }}
       />
-      <NetworkBadge meshPeerCount={meshPeerCount} />
-      {showOfflineChat && (
-        <OfflineChat currentUser={user} onClose={() => setShowOfflineChat(false)} />
-      )}
+      <NetworkBadge />
       <UpdateChecker />
     </div>
   );

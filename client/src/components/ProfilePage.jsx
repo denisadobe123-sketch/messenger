@@ -9,10 +9,7 @@ export default function ProfilePage({ user, token, onUpdate, onLogout }) {
   const [displayName, setDisplayName] = useState(user.displayName || user.username || '');
   const [handle, setHandle] = useState(user.handle || user.username || '');
   const [bio, setBio] = useState(user.bio || '');
-  const [phone, setPhone] = useState(user.phone || '');
   const [status, setStatus] = useState(user.status || 'online');
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(false);
@@ -44,31 +41,13 @@ export default function ProfilePage({ user, token, onUpdate, onLogout }) {
       const res = await fetch(`${API_URL}/profile`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ bio, status, displayName, handle, phone: phone.trim() || null })
+        body: JSON.stringify({ bio, status, displayName, handle })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       onUpdate(data);
       setHandle(data.handle || handle);
       setMsg('Профиль сохранён!');
-    } catch (e) { setErr(e.message); }
-    finally { setLoading(false); }
-  }
-
-  async function changePassword() {
-    clear();
-    if (!currentPassword || !newPassword) { setErr('Заполните оба поля'); return; }
-    setLoading(true);
-    try {
-      const res = await fetch(`${API_URL}/change-password`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ currentPassword, newPassword })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      setMsg('Пароль изменён!');
-      setCurrentPassword(''); setNewPassword('');
     } catch (e) { setErr(e.message); }
     finally { setLoading(false); }
   }
@@ -114,6 +93,23 @@ export default function ProfilePage({ user, token, onUpdate, onLogout }) {
       </div>
 
       <div className="profile-page-body">
+
+        {user.email && (
+          <div className="profile-section">
+            <label>Email</label>
+            <div style={{
+              padding: '10px 14px',
+              background: 'var(--bg-secondary)',
+              borderRadius: 10,
+              border: '1px solid var(--border)',
+              color: 'var(--text-secondary)',
+              fontSize: 14
+            }}>
+              {user.email}
+            </div>
+          </div>
+        )}
+
         <div className="profile-section">
           <label>Имя (видят другие)</label>
           <input className="modal-input" placeholder="Твоё имя" value={displayName} onChange={e => setDisplayName(e.target.value)} />
@@ -140,20 +136,6 @@ export default function ProfilePage({ user, token, onUpdate, onLogout }) {
         </div>
 
         <div className="profile-section">
-          <label>Телефон <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>(для SMS когда нет интернета)</span></label>
-          <input
-            className="modal-input"
-            type="tel"
-            placeholder="+7 999 123 45 67"
-            value={phone}
-            onChange={e => setPhone(e.target.value)}
-          />
-          <span style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4, display: 'block' }}>
-            Если ты оффлайн и нет push-уведомлений — сообщение придёт по SMS
-          </span>
-        </div>
-
-        <div className="profile-section">
           <label>Статус</label>
           <select className="status-select" value={status} onChange={e => setStatus(e.target.value)}>
             {Object.entries(STATUS_LABELS).map(([val, label]) => <option key={val} value={val}>{label}</option>)}
@@ -171,22 +153,7 @@ export default function ProfilePage({ user, token, onUpdate, onLogout }) {
         {err && <div className="error-msg">{err}</div>}
 
         <button className="btn btn-primary" style={{ width: '100%', marginBottom: 24 }} onClick={saveProfile} disabled={loading}>
-          Сохранить изменения
-        </button>
-
-        <div className="profile-divider" />
-
-        <h3 style={{ fontSize: 15, margin: '20px 0 14px' }}>Сменить пароль</h3>
-        <div className="profile-section">
-          <label>Текущий пароль</label>
-          <input className="modal-input" type="password" placeholder="••••••" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} />
-        </div>
-        <div className="profile-section">
-          <label>Новый пароль</label>
-          <input className="modal-input" type="password" placeholder="••••••" value={newPassword} onChange={e => setNewPassword(e.target.value)} />
-        </div>
-        <button className="btn btn-primary" style={{ width: '100%', marginBottom: 24 }} onClick={changePassword} disabled={loading}>
-          Изменить пароль
+          {loading ? 'Сохраняем...' : 'Сохранить изменения'}
         </button>
 
         <div className="profile-divider" />
@@ -215,6 +182,7 @@ export default function ProfilePage({ user, token, onUpdate, onLogout }) {
         <button className="btn btn-danger" style={{ width: '100%', marginTop: 20 }} onClick={onLogout}>
           Выйти из аккаунта
         </button>
+
       </div>
     </div>
   );

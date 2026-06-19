@@ -33,7 +33,7 @@ function usePersistedState(key, initial) {
 
 const TABS = ['chats', 'users', 'profile'];
 
-export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses, userProfiles, selectedChat, onSelectChat, onNewChat, mutedChats, onToggleMute, onDeleteChat, onOpenMesh, token, onProfileUpdate, onLogout }) {
+export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses, userProfiles, selectedChat, onSelectChat, onNewChat, mutedChats, onToggleMute, onDeleteChat, token, onProfileUpdate, onLogout }) {
   const [tab, setTab] = useState('chats');
   const [dragX, setDragX] = useState(0);
   const [slideAnim, setSlideAnim] = useState('');
@@ -173,13 +173,6 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
     <div className="sidebar">
       <div className="sidebar-header">
         <span className="sidebar-title">Nexora</span>
-        <button className="icon-btn mesh-btn" onClick={onOpenMesh} title="Mesh — без интернета">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="12" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/>
-            <line x1="12" y1="7" x2="5" y2="17"/><line x1="12" y1="7" x2="19" y2="17"/>
-            <line x1="7" y1="19" x2="17" y2="19"/>
-          </svg>
-        </button>
         <button className="icon-btn" onClick={() => setShowGroup(true)} title="Создать группу">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
