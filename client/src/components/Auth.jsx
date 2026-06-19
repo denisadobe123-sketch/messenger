@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { API_URL as API } from '../api.js';
 
 export default function Auth({ onAuth }) {
-  const [step, setStep] = useState('phone'); // 'phone' | 'code'
-  const [phone, setPhone] = useState('');
+  const [step, setStep] = useState('email'); // 'email' | 'code'
+  const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [otpToken, setOtpToken] = useState('');
   const [error, setError] = useState('');
@@ -18,21 +18,16 @@ export default function Auth({ onAuth }) {
     }), 1000);
   }
 
-  function formatPhone(val) {
-    // allow +, digits, spaces, dashes
-    return val.replace(/[^\d+\s\-\(\)]/g, '');
-  }
-
   async function sendCode(e) {
     e?.preventDefault();
-    const trimmed = phone.trim();
-    if (!trimmed) { setError('Введи номер телефона'); return; }
+    const trimmed = email.trim();
+    if (!trimmed || !trimmed.includes('@')) { setError('Введи email адрес'); return; }
     setError(''); setLoading(true);
     try {
       const res = await fetch(`${API}/auth/send-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: trimmed })
+        body: JSON.stringify({ email: trimmed })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Ошибка отправки');
@@ -45,13 +40,13 @@ export default function Auth({ onAuth }) {
 
   async function verifyCode(e) {
     e?.preventDefault();
-    if (code.length < 4) { setError('Введи код из SMS'); return; }
+    if (code.length < 4) { setError('Введи код из письма'); return; }
     setError(''); setLoading(true);
     try {
       const res = await fetch(`${API}/auth/verify-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phone: phone.trim(), otpToken, otpCode: code.trim() })
+        body: JSON.stringify({ email: email.trim(), otpToken, otpCode: code.trim() })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Неверный код');
@@ -87,16 +82,16 @@ export default function Auth({ onAuth }) {
           <h1>Nexora</h1>
         </div>
 
-        {/* ── STEP 1: Phone ── */}
-        {step === 'phone' && (
+        {/* ── STEP 1: Email ── */}
+        {step === 'email' && (
           <form className="auth-form" onSubmit={sendCode}>
-            <p className="auth-desc">Введи свой номер телефона и мы отправим тебе код подтверждения</p>
+            <p className="auth-desc">Введи свой email и мы отправим тебе код подтверждения</p>
             <input
-              className="auth-input phone-input"
-              type="tel"
-              placeholder="+7 999 123 45 67"
-              value={phone}
-              onChange={e => setPhone(formatPhone(e.target.value))}
+              className="auth-input"
+              type="email"
+              placeholder="your@email.com"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
               autoFocus
             />
             {error && <div className="auth-error">{error}</div>}
@@ -110,8 +105,8 @@ export default function Auth({ onAuth }) {
         {step === 'code' && (
           <form className="auth-form" onSubmit={verifyCode}>
             <p className="auth-desc">
-              Мы отправили код на номер<br />
-              <strong>{phone}</strong>
+              Мы отправили код на<br />
+              <strong>{email}</strong>
             </p>
             <input
               className="auth-input otp-input"
@@ -136,8 +131,8 @@ export default function Auth({ onAuth }) {
                 </button>
               )}
             </div>
-            <button type="button" className="auth-back-btn" onClick={() => { setStep('phone'); setCode(''); setError(''); }}>
-              ← Изменить номер
+            <button type="button" className="auth-back-btn" onClick={() => { setStep('email'); setCode(''); setError(''); }}>
+              ← Изменить email
             </button>
           </form>
         )}

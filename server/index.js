@@ -10,25 +10,43 @@ const fs = require('fs');
 const os = require('os');
 const webpush = require('web-push');
 
-// SMSC.ru SMS (optional — active when SMSC_LOGIN + SMSC_PASSWORD env vars are set)
-const SMSC_LOGIN    = process.env.SMSC_LOGIN    || null;
-const SMSC_PASSWORD = process.env.SMSC_PASSWORD || null;
-if (SMSC_LOGIN) console.log('✅ SMSC.ru SMS enabled');
-
-async function sendSMS(toPhone, body) {
-  if (!SMSC_LOGIN || !SMSC_PASSWORD || !toPhone) return false;
-  const phone = toPhone.replace(/[\s\-\(\)]/g, '').replace(/^\+/, '');
+// Email OTP via Gmail SMTP (nodemailer)
+const GMAIL_USER = process.env.GMAIL_USER || null;
+const GMAIL_PASS = process.env.GMAIL_PASS || null;
+let mailer = null;
+if (GMAIL_USER && GMAIL_PASS) {
   try {
-    const url = `https://smsc.ru/sys/send.php?login=${encodeURIComponent(SMSC_LOGIN)}&psw=${encodeURIComponent(SMSC_PASSWORD)}&phones=${phone}&mes=${encodeURIComponent(body)}&fmt=3&charset=utf-8`;
-    const res = await fetch(url);
-    const data = await res.json();
-    if (data.error_code) {
-      console.error('SMSC error:', data.error, `(code ${data.error_code})`);
-      return false;
-    }
-    return true;
-  } catch (e) { console.error('SMS error:', e.message); return false; }
+    const nodemailer = require('nodemailer');
+    mailer = nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: GMAIL_USER, pass: GMAIL_PASS }
+    });
+    console.log('✅ Gmail email enabled');
+  } catch (e) { console.warn('nodemailer error:', e.message); }
 }
+
+async function sendOtpEmail(toEmail, code) {
+  if (!mailer || !toEmail) return false;
+  try {
+    await mailer.sendMail({
+      from: `"Nexora" <${GMAIL_USER}>`,
+      to: toEmail,
+      subject: `${code} — код подтверждения Nexora`,
+      html: `
+        <div style="font-family:sans-serif;max-width:400px;margin:40px auto;padding:32px;background:#17212b;border-radius:16px;color:#fff">
+          <h2 style="margin:0 0 8px;color:#00e5c0">Nexora</h2>
+          <p style="color:#8899aa;margin:0 0 24px">Код подтверждения</p>
+          <div style="font-size:36px;font-weight:800;letter-spacing:8px;color:#fff;text-align:center;padding:20px;background:#0e1621;border-radius:12px">${code}</div>
+          <p style="color:#8899aa;font-size:13px;margin:20px 0 0;text-align:center">Код действителен 10 минут</p>
+        </div>
+      `
+    });
+    return true;
+  } catch (e) { console.error('Email error:', e.message); return false; }
+}
+
+// SMS fallback — disabled (no provider configured)
+async function sendSMS(toPhone, body) { return false; }
 
 const JWT_SECRET = process.env.JWT_SECRET || 'messenger_secret_2024';
 const PORT = process.env.PORT || 80;
@@ -266,22 +284,19 @@ app.post('/auth/send-otp', async (req, res) => {
   registerAttempts.set(ip, att);
   if (att.count > 10) return res.status(429).json({ error: 'Слишком много попыток. Попробуй через час.' });
 
-  const { phone } = req.body;
-  if (!phone?.trim()) return res.status(400).json({ error: 'Введи номер телефона' });
+  const { email } = req.body;
+  if (!email?.trim() || !email.includes('@')) return res.status(400).json({ error: 'Введи email адрес' });
 
   const code = generateOTP();
   const otpToken = require('crypto').randomBytes(32).toString('hex');
   cleanExpiredOTPs();
-  otpStore.set(otpToken, { phone: phone.trim(), code, expiresAt: now + 10 * 60 * 1000, attempts: 0 });
+  otpStore.set(otpToken, { email: email.trim().toLowerCase(), code, expiresAt: now + 10 * 60 * 1000, attempts: 0 });
 
-  // Send SMS via SMS.ru
-  const smsSent = await sendSMS(phone.trim(), `Kod: ${code}`);
+  const emailSent = await sendOtpEmail(email.trim(), code);
+  console.log(`[OTP] ${email} → ${code} (email ${emailSent ? 'sent' : 'failed'})`);
 
-  // Always log for debugging
-  console.log(`[OTP] ${phone} → ${code} (SMS ${smsSent ? 'sent' : 'failed'})`);
-
-  if (!smsSent && SMSC_LOGIN) {
-    return res.status(500).json({ error: 'Не удалось отправить SMS. Проверь номер телефона.' });
+  if (!emailSent && GMAIL_USER) {
+    return res.status(500).json({ error: 'Не удалось отправить письмо. Проверь email.' });
   }
 
   res.json({ otpToken });
@@ -289,13 +304,13 @@ app.post('/auth/send-otp', async (req, res) => {
 
 // Step 2: verify OTP → login or auto-register
 app.post('/auth/verify-otp', async (req, res) => {
-  const { phone, otpToken, otpCode } = req.body;
-  if (!phone || !otpToken || !otpCode) return res.status(400).json({ error: 'Неверный запрос' });
+  const { email, otpToken, otpCode } = req.body;
+  if (!email || !otpToken || !otpCode) return res.status(400).json({ error: 'Неверный запрос' });
 
   const entry = otpStore.get(otpToken);
   if (!entry) return res.status(400).json({ error: 'Код устарел. Запроси новый.' });
   if (Date.now() > entry.expiresAt) { otpStore.delete(otpToken); return res.status(400).json({ error: 'Код истёк. Запроси новый.' }); }
-  if (entry.phone !== phone.trim()) return res.status(400).json({ error: 'Неверный номер' });
+  if (entry.email !== email.trim().toLowerCase()) return res.status(400).json({ error: 'Неверный email' });
 
   entry.attempts = (entry.attempts || 0) + 1;
   if (entry.attempts > 5) { otpStore.delete(otpToken); return res.status(429).json({ error: 'Слишком много попыток. Запроси новый код.' }); }
@@ -304,8 +319,8 @@ app.post('/auth/verify-otp', async (req, res) => {
   otpStore.delete(otpToken);
 
   const db = DB;
-  // Check if user with this phone exists → login
-  let user = db.users.find(u => u.phone === phone.trim());
+  // Check if user with this email exists → login
+  let user = db.users.find(u => u.email === email.trim().toLowerCase());
   if (!user) {
     // Auto-register with random username
     const randomSuffix = Math.floor(Math.random() * 9000 + 1000);
@@ -316,7 +331,7 @@ app.post('/auth/verify-otp', async (req, res) => {
     user = {
       id: Date.now().toString(), username, handle,
       displayName: `User ${randomSuffix}`,
-      phone: phone.trim(), password: null,
+      email: email.trim().toLowerCase(), password: null,
       avatar: null, bio: null, status: 'online',
       createdAt: new Date().toISOString()
     };
