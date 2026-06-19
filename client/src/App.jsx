@@ -11,7 +11,10 @@ import { initPushNotifications, removePushToken } from './pushNotifications.js';
 import { initNative, tap } from './native.js';
 import UpdateChecker from './components/UpdateChecker.jsx';
 import NetworkBadge from './components/NetworkBadge.jsx';
+import PasscodeLock from './components/PasscodeLock.jsx';
 import { enqueue, flushQueue, queueSize } from './offlineQueue.js';
+import { hasPasscode, isUnlocked } from './passcode.js';
+import { ensureKeys, clearE2E } from './e2e.js';
 
 function playNotificationSound() {
   try {
@@ -56,6 +59,7 @@ export default function App() {
     try { return new Set(JSON.parse(localStorage.getItem('mutedChats') || '[]')); } catch { return new Set(); }
   });
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [locked, setLocked] = useState(() => hasPasscode() && !isUnlocked());
   const selectedChatRef = useRef(null);
   const mutedRef = useRef(mutedChats);
 
@@ -121,6 +125,7 @@ export default function App() {
     if (!user || !token) return;
     requestNotificationPermission();
     initPushNotifications(token);
+    ensureKeys(token); // публикуем E2E-ключ для секретных чатов
 
     const socket = connectSocket(token);
 
@@ -212,6 +217,7 @@ export default function App() {
   function handleLogout() {
     removePushToken(token);
     localStorage.removeItem('token'); localStorage.removeItem('user');
+    clearE2E();
     disconnectSocket(); setUser(null); setToken(''); setChats([]); setSelectedChat(null);
   }
 
@@ -256,6 +262,7 @@ export default function App() {
     if (socket && updatedUser.status) socket.emit('set_status', { status: updatedUser.status });
   }
 
+  if (locked) return <PasscodeLock onUnlock={() => setLocked(false)} />;
   if (!user) return <Auth onAuth={handleAuth} />;
 
   return (

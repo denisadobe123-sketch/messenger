@@ -9,6 +9,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const webpush = require('web-push');
+const { db, Users, Chats, Messages, Blocked, Stories } = require('./db');
 
 // Email OTP via EmailJS REST API
 const EMAILJS_SERVICE_ID  = process.env.EMAILJS_SERVICE_ID  || 'service_9db449v';
@@ -98,62 +99,13 @@ function cleanExpiredOTPs() {
   }
 }
 
-function loadDB() {
-  const tryParse = (file) => {
-    if (!fs.existsSync(file)) return null;
-    try { return JSON.parse(fs.readFileSync(file, 'utf8')); }
-    catch { return null; }
-  };
-  // Основной файл
-  let data = tryParse(DB_FILE);
-  if (data) return normalizeDB(data);
-  // Повреждён — пробуем резервную копию
-  if (fs.existsSync(DB_FILE)) {
-    const backup = tryParse(DB_FILE + '.bak');
-    if (backup) {
-      console.error('⚠️  db.json повреждён, восстановлено из .bak');
-      return normalizeDB(backup);
-    }
-    // Сохраняем битый файл для разбора и стартуем с чистого
-    try { fs.renameSync(DB_FILE, `${DB_FILE}.corrupt.${Date.now()}`); } catch {}
-    console.error('⚠️  db.json повреждён и .bak недоступен — старт с пустой БД');
-  }
-  const initial = { users: [], chats: [], messages: [] };
-  return initial;
-}
-
-function normalizeDB(d) {
-  return { users: d.users || [], chats: d.chats || [], messages: d.messages || [], blocked: d.blocked || {} };
-}
-
-// Единый объект БД в памяти — все обработчики работают с ним, без перечитывания
-const DB = loadDB();
-
-// Атомарная запись: пишем во временный файл, бэкапим текущий, затем переименовываем
-let saveScheduled = false;
-function saveDB() {
-  if (saveScheduled) return;
-  saveScheduled = true;
-  setImmediate(flushDB);
-}
-function flushDB() {
-  saveScheduled = false;
-  const tmp = `${DB_FILE}.tmp`;
-  try {
-    fs.writeFileSync(tmp, JSON.stringify(DB));
-    if (fs.existsSync(DB_FILE)) {
-      try { fs.copyFileSync(DB_FILE, `${DB_FILE}.bak`); } catch {}
-    }
-    fs.renameSync(tmp, DB_FILE);
-  } catch (e) {
-    console.error('Ошибка записи БД:', e.message);
-  }
-}
-// Гарантированный сброс на диск при остановке (редеплой Railway шлёт SIGTERM)
-function flushSync() { saveScheduled = false; flushDB(); }
+// Хранилище теперь в SQLite (см. db.js). better-sqlite3 пишет синхронно на каждом
+// запросе, поэтому отдельный saveDB() больше не нужен — оставлен как no-op, чтобы
+// не трогать множество старых вызовов. Закрываем БД корректно при остановке.
+function saveDB() {}
+function flushSync() { try { db.close(); } catch {} }
 process.on('SIGTERM', () => { flushSync(); process.exit(0); });
 process.on('SIGINT', () => { flushSync(); process.exit(0); });
-process.on('exit', flushSync);
 
 function loadFCM() {
   if (!fs.existsSync(FCM_FILE)) return {};
@@ -250,15 +202,14 @@ function generateHandle(base) {
 }
 
 function isHandleTaken(handle, excludeId) {
-  return DB.users.some(u => u.id !== excludeId && (u.handle || u.username).toLowerCase() === handle.toLowerCase());
+  return Users.isHandleTaken(handle, excludeId);
 }
 
 // Системное сообщение в группе («X добавил Y», «X вышел» и т.п.)
 function pushSystemMessage(chatId, text) {
-  const msg = { id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+  const msg = Messages.create({ id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
     chatId, system: true, text, senderId: null, senderName: null,
-    reactions: [], edited: false, deleted: false, createdAt: new Date().toISOString(), readBy: [] };
-  DB.messages.push(msg);
+    reactions: [], edited: false, deleted: false, createdAt: new Date().toISOString(), readBy: [] });
   io.to(chatId).emit('new_message', msg);
   return msg;
 }
@@ -349,25 +300,28 @@ app.post('/auth/verify-otp', async (req, res) => {
 
   otpStore.delete(otpToken);
 
-  const db = DB;
   // Check if user with this email exists → login
-  let user = db.users.find(u => u.email === email.trim().toLowerCase());
+  let user = Users.getByEmail(email.trim().toLowerCase());
   if (!user) {
     // Auto-register with random username
     const randomSuffix = Math.floor(Math.random() * 9000 + 1000);
     let username = `user${randomSuffix}`;
-    while (db.users.find(u => u.username === username)) username = `user${Math.floor(Math.random() * 90000 + 10000)}`;
+    while (Users.getByUsername(username)) username = `user${Math.floor(Math.random() * 90000 + 10000)}`;
     let handle = username;
     while (isHandleTaken(handle, null)) handle = `${username}_${Math.floor(Math.random() * 999)}`;
-    user = {
+    user = Users.create({
       id: Date.now().toString(), username, handle,
       displayName: `User ${randomSuffix}`,
       email: email.trim().toLowerCase(), password: null,
       avatar: null, bio: null, status: 'online',
       createdAt: new Date().toISOString()
-    };
-    db.users.push(user);
-    saveDB();
+    });
+  }
+
+  // Если включён облачный пароль (2FA) — требуем второй шаг
+  if (user.twoFactor) {
+    const tempToken = jwt.sign({ id: user.id, need2fa: true }, JWT_SECRET, { expiresIn: '10m' });
+    return res.json({ need2fa: true, tempToken, hint: user.twoFactorHint || null });
   }
 
   const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET);
@@ -377,8 +331,7 @@ app.post('/auth/verify-otp', async (req, res) => {
 // Legacy login with password (kept for existing accounts)
 app.post('/login', async (req, res) => {
   const { username, password } = req.body;
-  const db = DB;
-  const user = db.users.find(u => u.username.toLowerCase() === (username || '').toLowerCase());
+  const user = Users.getByUsername(username || '');
   if (!user) return res.status(400).json({ error: 'Пользователь не найден' });
   if (!user.password) return res.status(400).json({ error: 'Используй вход по номеру телефона' });
   if (!await bcrypt.compare(password, user.password)) return res.status(400).json({ error: 'Неверный пароль' });
@@ -391,37 +344,87 @@ app.post('/register', async (req, res) => {
   return res.status(400).json({ error: 'Используй вход по номеру телефона' });
 });
 
+// ── E2E: публичные ключи устройств ───────────────────────────────────────────
+app.post('/keys', authMiddleware, (req, res) => {
+  const { publicKey } = req.body;
+  if (!publicKey) return res.status(400).json({ error: 'No key' });
+  Users.update(req.user.id, { publicKey });
+  res.json({ ok: true });
+});
+
+app.get('/keys/:userId', authMiddleware, (req, res) => {
+  const u = Users.getById(req.params.userId);
+  if (!u?.publicKey) return res.status(404).json({ error: 'Нет ключа' });
+  res.json({ publicKey: u.publicKey });
+});
+
+// ── 2FA (облачный пароль) ─────────────────────────────────────────────────────
+app.get('/auth/2fa', authMiddleware, (req, res) => {
+  const u = Users.getById(req.user.id);
+  res.json({ enabled: !!u?.twoFactor, hint: u?.twoFactorHint || null });
+});
+
+app.post('/auth/2fa', authMiddleware, async (req, res) => {
+  const { password, hint, currentPassword } = req.body;
+  const u = Users.getById(req.user.id);
+  if (!u) return res.status(404).json({ error: 'Не найден' });
+  // Если 2FA уже включён — нужен текущий пароль для изменения/снятия
+  if (u.twoFactor) {
+    if (!currentPassword || !await bcrypt.compare(currentPassword, u.twoFactor))
+      return res.status(400).json({ error: 'Неверный текущий пароль' });
+  }
+  if (!password) { // снятие
+    Users.update(req.user.id, { twoFactor: null, twoFactorHint: null });
+    return res.json({ ok: true, enabled: false });
+  }
+  if (password.length < 4) return res.status(400).json({ error: 'Минимум 4 символа' });
+  Users.update(req.user.id, { twoFactor: await bcrypt.hash(password, 10), twoFactorHint: hint || null });
+  res.json({ ok: true, enabled: true });
+});
+
+app.post('/auth/verify-2fa', async (req, res) => {
+  const { tempToken, password } = req.body;
+  if (!tempToken || !password) return res.status(400).json({ error: 'Неверный запрос' });
+  let payload;
+  try { payload = jwt.verify(tempToken, JWT_SECRET); } catch { return res.status(400).json({ error: 'Сессия истекла' }); }
+  if (!payload.need2fa) return res.status(400).json({ error: 'Неверный токен' });
+  const u = Users.getById(payload.id);
+  if (!u?.twoFactor) return res.status(400).json({ error: 'Не найден' });
+  if (!await bcrypt.compare(password, u.twoFactor)) return res.status(400).json({ error: 'Неверный пароль' });
+  const token = jwt.sign({ id: u.id, username: u.username }, JWT_SECRET);
+  res.json({ token, user: safeUser(u, true) });
+});
+
 // ── Profile ───────────────────────────────────────────────────────────────────
 app.get('/profile', authMiddleware, (req, res) => {
-  const db = DB;
-  const user = db.users.find(u => u.id === req.user.id);
+  const user = Users.getById(req.user.id);
   if (!user) return res.status(404).json({ error: 'Не найден' });
   res.json(safeUser(user));
 });
 
 app.put('/profile', authMiddleware, (req, res) => {
-  const db = DB;
-  const user = db.users.find(u => u.id === req.user.id);
+  const user = Users.getById(req.user.id);
   if (!user) return res.status(404).json({ error: 'Не найден' });
   const { bio, status, displayName, handle, phone } = req.body;
-  if (bio !== undefined) user.bio = bio;
-  if (status !== undefined) user.status = status;
-  if (displayName !== undefined) user.displayName = displayName.trim() || user.displayName;
-  if (phone !== undefined) user.phone = phone ? phone.trim() : null;
+  const patch = {};
+  if (bio !== undefined) patch.bio = bio;
+  if (status !== undefined) patch.status = status;
+  if (displayName !== undefined) patch.displayName = displayName.trim() || user.displayName;
+  if (phone !== undefined) patch.phone = phone ? phone.trim() : null;
   if (handle !== undefined) {
     const clean = handle.replace(/^@/, '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 32);
     if (!clean) return res.status(400).json({ error: 'Недопустимый юзернейм' });
     if (isHandleTaken(clean, user.id)) return res.status(400).json({ error: 'Этот @' + clean + ' уже занят' });
-    user.handle = clean;
+    patch.handle = clean;
   }
-  saveDB();
-  io.emit('user_profile_updated', safeUser(user));
-  res.json(safeUser(user, true));
+  const updated = Users.update(user.id, patch);
+  io.emit('user_profile_updated', safeUser(updated));
+  res.json(safeUser(updated, true));
 });
 
 // Serve avatar from DB — works even after Railway redeploy wipes disk
 app.get('/avatar/:userId', (req, res) => {
-  const user = DB.users.find(u => u.id === req.params.userId);
+  const user = Users.getById(req.params.userId);
   if (!user?.avatarData) return res.status(404).send('Not found');
   const buf = Buffer.from(user.avatarData.data, 'base64');
   res.set('Content-Type', user.avatarData.mime || 'image/jpeg');
@@ -431,35 +434,33 @@ app.get('/avatar/:userId', (req, res) => {
 
 app.post('/profile/avatar', authMiddleware, upload.single('avatar'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
-  const db = DB;
-  const user = db.users.find(u => u.id === req.user.id);
+  const user = Users.getById(req.user.id);
   if (!user) return res.status(404).json({ error: 'Не найден' });
+  let updated;
   try {
     const buf = fs.readFileSync(req.file.path);
     // Store raw binary in DB, serve via /avatar/:id endpoint
-    user.avatarData = { data: buf.toString('base64'), mime: req.file.mimetype || 'image/jpeg' };
-    user.avatar = `${resolveBaseUrl(req)}/avatar/${user.id}`;
+    const avatarData = { data: buf.toString('base64'), mime: req.file.mimetype || 'image/jpeg' };
+    const avatar = `${resolveBaseUrl(req)}/avatar/${user.id}`;
+    updated = Users.update(user.id, { avatarData, avatar });
     try { fs.unlinkSync(req.file.path); } catch {}
   } catch (e) {
     console.error('Avatar store error:', e.message);
     return res.status(500).json({ error: 'Ошибка сохранения аватара' });
   }
-  saveDB();
   // Broadcast lightweight update (URL only, not base64)
-  io.emit('user_profile_updated', safeUser(user));
-  res.json(safeUser(user, true));
+  io.emit('user_profile_updated', safeUser(updated));
+  res.json(safeUser(updated, true));
 });
 
 app.put('/change-password', authMiddleware, async (req, res) => {
   const { currentPassword, newPassword } = req.body;
   if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Заполните все поля' });
   if (newPassword.length < 6) return res.status(400).json({ error: 'Новый пароль минимум 6 символов' });
-  const db = DB;
-  const user = db.users.find(u => u.id === req.user.id);
+  const user = Users.getById(req.user.id);
   if (!user) return res.status(404).json({ error: 'Не найден' });
   if (!await bcrypt.compare(currentPassword, user.password)) return res.status(400).json({ error: 'Неверный текущий пароль' });
-  user.password = await bcrypt.hash(newPassword, 10);
-  saveDB();
+  Users.update(user.id, { password: await bcrypt.hash(newPassword, 10) });
   res.json({ ok: true });
 });
 
@@ -485,45 +486,30 @@ app.delete('/fcm-token', authMiddleware, (req, res) => {
 
 // ── Users ─────────────────────────────────────────────────────────────────────
 app.get('/users', authMiddleware, (req, res) => {
-  const db = DB;
-  let q = (req.query.q || '').toLowerCase().replace(/^@/, '');
-  const myBlocked = db.blocked[req.user.id] || [];
-  res.json(db.users.filter(u => {
-    if (u.id === req.user.id) return false;
-    if (myBlocked.includes(u.id)) return false; // hide blocked users
-    if (!q) return true;
-    return (u.handle || u.username).toLowerCase().includes(q)
-      || (u.displayName || u.username).toLowerCase().includes(q)
-      || u.username.toLowerCase().includes(q);
-  }).map(safeUser));
+  const myBlocked = Blocked.list(req.user.id);
+  res.json(Users.search(req.query.q || '', req.user.id, myBlocked).map(safeUser));
 });
 
 app.get('/users/by-handle/:handle', authMiddleware, (req, res) => {
-  const handle = req.params.handle.replace(/^@/, '').toLowerCase();
-  const user = DB.users.find(u => (u.handle || u.username).toLowerCase() === handle);
+  const user = Users.getByHandle(req.params.handle.replace(/^@/, ''));
   if (!user) return res.status(404).json({ error: 'Пользователь не найден' });
   res.json(safeUser(user));
 });
 
 // ── Block / Unblock ───────────────────────────────────────────────────────────
 app.post('/block/:targetId', authMiddleware, (req, res) => {
-  const { targetId } = req.params;
-  if (!DB.blocked[req.user.id]) DB.blocked[req.user.id] = [];
-  if (!DB.blocked[req.user.id].includes(targetId)) DB.blocked[req.user.id].push(targetId);
-  saveDB();
+  Blocked.block(req.user.id, req.params.targetId);
   res.json({ ok: true });
 });
 
 app.delete('/block/:targetId', authMiddleware, (req, res) => {
-  const { targetId } = req.params;
-  DB.blocked[req.user.id] = (DB.blocked[req.user.id] || []).filter(id => id !== targetId);
-  saveDB();
+  Blocked.unblock(req.user.id, req.params.targetId);
   res.json({ ok: true });
 });
 
 app.get('/blocked', authMiddleware, (req, res) => {
-  const ids = DB.blocked[req.user.id] || [];
-  res.json(ids.map(id => DB.users.find(u => u.id === id)).filter(Boolean).map(safeUser));
+  const ids = Blocked.list(req.user.id);
+  res.json(ids.map(id => Users.getById(id)).filter(Boolean).map(safeUser));
 });
 
 // ── Web Push (VAPID) ──────────────────────────────────────────────────────────
@@ -575,17 +561,17 @@ async function sendWebPush(userId, payload) {
 
 // ── Chats ─────────────────────────────────────────────────────────────────────
 app.get('/chats', authMiddleware, (req, res) => {
-  const db = DB;
-  const userChats = db.chats.filter(c => c.members.includes(req.user.id));
+  const userChats = Chats.forUser(req.user.id);
   const enriched = userChats.map(chat => {
-    const msgs = db.messages.filter(m => m.chatId === chat.id);
-    const lastMessage = msgs.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0] || null;
-    const unread = msgs.filter(m => !m.readBy.includes(req.user.id)).length;
+    const lastMessage = Messages.lastForChat(chat.id);
+    const unread = Messages.unreadCount(chat.id, req.user.id);
     let displayName = chat.name, otherUser = null;
-    if (chat.type === 'private') {
+    if (chat.type === 'private' || chat.type === 'secret') {
       const otherId = chat.members.find(id => id !== req.user.id);
-      otherUser = db.users.find(u => u.id === otherId);
+      otherUser = Users.getById(otherId);
       displayName = otherUser?.displayName || otherUser?.username || 'Неизвестный';
+    } else if (chat.type === 'saved') {
+      displayName = 'Избранное';
     }
     return { ...chat, displayName, lastMessage, unread, otherUserAvatar: otherUser?.avatar || null,
       otherUserId: otherUser?.id || null, otherUserStatus: otherUser?.status || null, otherUserLastSeen: otherUser?.lastSeen || null,
@@ -598,63 +584,82 @@ app.get('/chats', authMiddleware, (req, res) => {
   }));
 });
 
+// Найти существующий приватный чат двух пользователей
+function findPrivateChat(a, b) {
+  return Chats.forUser(a).find(c => c.type === 'private' && c.members.includes(b));
+}
+
 app.post('/chats', authMiddleware, (req, res) => {
   const { type, name, members } = req.body;
-  const db = DB;
   if (type === 'private') {
-    const existing = db.chats.find(c => c.type === 'private' && c.members.includes(req.user.id) && c.members.includes(members[0]));
+    const existing = findPrivateChat(req.user.id, members[0]);
     if (existing) return res.json(existing);
   }
-  const allMembers = type === 'private' ? [req.user.id, members[0]] : [req.user.id, ...members];
-  const chat = { id: Date.now().toString(), type, name: name || null, members: allMembers,
-    pinnedMessageId: null, createdBy: req.user.id, createdAt: new Date().toISOString() };
-  db.chats.push(chat);
-  saveDB();
+  if (type === 'secret') {
+    const existing = Chats.forUser(req.user.id).find(c => c.type === 'secret' && c.members.includes(members[0]));
+    if (existing) return res.json(existing);
+  }
+  if (type === 'saved') {
+    const existing = Chats.forUser(req.user.id).find(c => c.type === 'saved');
+    if (existing) return res.json(existing);
+  }
+  const allMembers = type === 'private' ? [req.user.id, members[0]]
+    : type === 'saved' ? [req.user.id]
+    : [req.user.id, ...members];
+  const chat = Chats.create({ id: Date.now().toString(), type, name: name || null, members: allMembers,
+    pinnedMessageId: null, createdBy: req.user.id, createdAt: new Date().toISOString() });
   allMembers.forEach(uid => { joinUserToChat(uid, chat.id); emitToUser(uid, 'new_chat', chat); });
   res.json(chat);
 });
 
 // ── Messages ──────────────────────────────────────────────────────────────────
 app.get('/messages/:chatId', authMiddleware, (req, res) => {
-  const db = DB;
-  const chat = db.chats.find(c => c.id === req.params.chatId);
-  if (!chat || !chat.members.includes(req.user.id)) return res.status(403).json({ error: 'Нет доступа' });
-  const messages = db.messages.filter(m => m.chatId === req.params.chatId);
-  let changed = false;
-  messages.forEach(m => { if (!m.readBy.includes(req.user.id)) { m.readBy.push(req.user.id); changed = true; } });
-  if (changed) saveDB();
-  res.json(messages);
+  if (!Chats.isMember(req.params.chatId, req.user.id)) return res.status(403).json({ error: 'Нет доступа' });
+  Messages.markChatRead(req.params.chatId, req.user.id);
+  res.json(Messages.forChat(req.params.chatId));
 });
 
 app.get('/messages/:chatId/search', authMiddleware, (req, res) => {
-  const db = DB;
-  const chat = db.chats.find(c => c.id === req.params.chatId);
-  if (!chat || !chat.members.includes(req.user.id)) return res.status(403).json({ error: 'Нет доступа' });
-  const q = (req.query.q || '').toLowerCase().trim();
+  if (!Chats.isMember(req.params.chatId, req.user.id)) return res.status(403).json({ error: 'Нет доступа' });
+  const q = (req.query.q || '').trim();
   if (!q) return res.json([]);
-  res.json(db.messages.filter(m => m.chatId === req.params.chatId && !m.deleted && m.text?.toLowerCase().includes(q)));
+  res.json(Messages.searchInChat(req.params.chatId, q));
+});
+
+// Глобальный поиск по всем чатам пользователя
+app.get('/search', authMiddleware, (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (!q) return res.json([]);
+  const msgs = Messages.searchForUser(req.user.id, q);
+  // Обогащаем именем чата для отображения
+  res.json(msgs.map(m => {
+    const chat = Chats.getById(m.chatId);
+    let chatName = chat?.name;
+    if (chat?.type === 'private') {
+      const other = Users.getById(chat.members.find(id => id !== req.user.id));
+      chatName = other?.displayName || other?.username || 'Чат';
+    } else if (chat?.type === 'saved') chatName = 'Избранное';
+    return { ...m, chatName, chatType: chat?.type };
+  }));
 });
 
 // ── Queued messages (Background Sync from Service Worker) ─────────────────────
 app.post('/messages/queued', authMiddleware, async (req, res) => {
   const { chatId, text, file, sticker, voice, replyTo, clientId } = req.body;
-  const db = DB;
-  const chat = db.chats.find(c => c.id === chatId && c.members.includes(req.user.id));
-  if (!chat) return res.status(403).json({ error: 'Нет доступа' });
-  if (clientId && db.messages.find(m => m.clientId === clientId))
+  const chat = Chats.getById(chatId);
+  if (!chat || !chat.members.includes(req.user.id)) return res.status(403).json({ error: 'Нет доступа' });
+  if (clientId && Messages.getByClientId(clientId))
     return res.json({ ok: true, duplicate: true });
-  const sender = db.users.find(u => u.id === req.user.id);
+  const sender = Users.getById(req.user.id);
   const senderName = sender?.displayName || sender?.username || req.user.username;
-  const message = {
+  const message = Messages.create({
     id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
     clientId: clientId || null, chatId,
     senderId: req.user.id, senderName,
     text: text || null, file: file || null, voice: voice || null, sticker: sticker || null,
     forwardOf: null, replyTo: null, reactions: [], edited: false, deleted: false,
     createdAt: new Date().toISOString(), readBy: [req.user.id]
-  };
-  db.messages.push(message);
-  saveDB();
+  });
   io.to(chatId).emit('new_message', message);
   // Notify offline members
   const pushBody = sticker || text || (voice ? '🎤 Голосовое' : '📎 Файл');
@@ -664,7 +669,7 @@ app.post('/messages/queued', authMiddleware, async (req, res) => {
     if (offline) sendPushToUser(memberId, senderName, pushBody);
     const webPushSent = await sendWebPush(memberId, { title: senderName, body: pushBody, chatId, icon: sender?.avatar || '/icon-192.png' });
     if (offline && !webPushSent) {
-      const member = db.users.find(u => u.id === memberId);
+      const member = Users.getById(memberId);
       if (member?.phone) sendSMS(member.phone, `💬 ${senderName}: ${pushBody}`);
     }
   }
@@ -723,216 +728,215 @@ io.on('connection', (socket) => {
   const userId = socket.user.id;
   const wasOffline = !isOnline(userId);
   addOnline(userId, socket.id);
-  const db = DB;
-  db.chats.filter(c => c.members.includes(userId)).forEach(c => socket.join(c.id));
+  Chats.forUser(userId).forEach(c => socket.join(c.id));
   if (wasOffline) io.emit('user_status', { userId, online: true });
 
-  socket.on('send_message', async (data) => {
-    const { chatId, text, file, replyTo, voice, sticker, forwardOf, burnAfter, videoNote } = data;
-    const db = DB;
-    const chat = db.chats.find(c => c.id === chatId);
+  socket.on('send_message', async (data, ack) => {
+    const { chatId, text, file, replyTo, voice, sticker, forwardOf, burnAfter, videoNote,
+            entities, poll, location, scheduledAt, enc } = data;
+    const chat = Chats.getById(chatId);
     if (!chat || !chat.members.includes(userId)) return;
 
     let replySnippet = null;
     if (replyTo) {
-      const orig = db.messages.find(m => m.id === replyTo);
+      const orig = Messages.getById(replyTo);
       if (orig) replySnippet = { id: orig.id, senderName: orig.senderName,
         text: orig.deleted ? 'Сообщение удалено' : (orig.text || (orig.voice ? '🎤 Голосовое' : (orig.sticker || (orig.file ? '📎 Файл' : '')))) };
     }
 
-    const message = { id: Date.now().toString(), chatId, senderId: userId, senderName: socket.user.username,
+    // Запланированное сообщение в будущее — сохраняем, но не рассылаем сейчас
+    const sched = scheduledAt && new Date(scheduledAt) > new Date() ? new Date(scheduledAt).toISOString() : null;
+
+    const message = Messages.create({ id: Date.now().toString() + Math.random().toString(36).slice(2, 5),
+      chatId, senderId: userId, senderName: socket.user.username,
       text: text || null, file: file || null, voice: voice || null, sticker: sticker || null,
-      videoNote: videoNote || null,
+      videoNote: videoNote || null, entities: entities || null, poll: poll || null, location: location || null,
+      enc: !!enc,
       forwardOf: forwardOf || null, replyTo: replySnippet, reactions: [], edited: false, deleted: false,
-      createdAt: new Date().toISOString(), readBy: [userId],
+      createdAt: new Date().toISOString(), readBy: [userId], scheduledAt: sched,
       burnAfter: burnAfter || null,
-      burnAt: burnAfter ? new Date(Date.now() + burnAfter * 1000).toISOString() : null };
-    db.messages.push(message);
-    saveDB();
+      burnAt: burnAfter ? new Date(Date.now() + burnAfter * 1000).toISOString() : null });
+
+    if (sched) { if (typeof ack === 'function') ack({ ok: true, scheduled: true, message }); return; }
+
     io.to(chatId).emit('new_message', message);
+    if (typeof ack === 'function') ack({ ok: true, message });
 
     // Auto-delete after burnAfter seconds
     if (burnAfter) {
       setTimeout(() => {
-        const m = DB.messages.find(x => x.id === message.id);
+        const m = Messages.getById(message.id);
         if (m && !m.deleted) {
-          m.deleted = true; m.text = null; m.file = null; m.voice = null; m.sticker = null;
-          saveDB();
+          Messages.patch(message.id, { deleted: true, text: null, file: null, voice: null, sticker: null });
           io.to(chatId).emit('message_deleted', { messageId: message.id, burned: true });
         }
       }, burnAfter * 1000);
     }
 
     // Push уведомления — FCM + Web Push + SMS fallback для оффлайн
-    const pushBody = sticker || text || (voice ? '🎤 Голосовое' : '📎 Файл');
-    const sender = db.users.find(u => u.id === userId);
+    const pushBody = enc ? '🔒 Зашифрованное сообщение'
+      : sticker || text || (voice ? '🎤 Голосовое' : poll ? '📊 Опрос' : location ? '📍 Геолокация' : '📎 Файл');
+    const sender = Users.getById(userId);
     const senderName = sender?.displayName || sender?.username || socket.user.username;
     for (const memberId of chat.members) {
       if (memberId === userId) continue;
-      const isBlocked = (db.blocked[memberId] || []).includes(userId);
-      if (isBlocked) continue;
+      if (Blocked.isBlocked(memberId, userId)) continue;
       const offline = !isOnline(memberId);
       if (offline) sendPushToUser(memberId, senderName, pushBody);
       const webPushSent = await sendWebPush(memberId, { title: senderName, body: pushBody, chatId, icon: sender?.avatar || '/icon-192.png' });
       // SMS fallback: send if user is offline and has no web push subscription
       if (offline && !webPushSent) {
-        const member = db.users.find(u => u.id === memberId);
+        const member = Users.getById(memberId);
         if (member?.phone) sendSMS(member.phone, `💬 ${senderName}: ${pushBody}`);
       }
     }
   });
 
-  socket.on('edit_message', ({ messageId, text }) => {
-    const db = DB;
-    const msg = db.messages.find(m => m.id === messageId);
+  socket.on('edit_message', ({ messageId, text, entities }) => {
+    const msg = Messages.getById(messageId);
     if (!msg || msg.senderId !== userId || msg.deleted) return;
-    msg.text = text; msg.edited = true;
-    saveDB();
-    io.to(msg.chatId).emit('message_edited', { messageId, text, edited: true });
+    Messages.patch(messageId, { text, entities: entities || null, edited: true });
+    io.to(msg.chatId).emit('message_edited', { messageId, text, entities: entities || null, edited: true });
   });
 
   socket.on('delete_message', ({ messageId }) => {
-    const db = DB;
-    const msg = db.messages.find(m => m.id === messageId);
+    const msg = Messages.getById(messageId);
     if (!msg || msg.senderId !== userId) return;
-    msg.deleted = true; msg.text = null; msg.file = null; msg.voice = null; msg.sticker = null;
-    saveDB();
-    const chat = db.chats.find(c => c.id === msg.chatId);
-    if (chat?.pinnedMessageId === messageId) { chat.pinnedMessageId = null; saveDB(); io.to(msg.chatId).emit('chat_pinned', { chatId: msg.chatId, pinnedMessageId: null }); }
+    Messages.patch(messageId, { deleted: true, text: null, file: null, voice: null, sticker: null, pinned: false });
+    const chat = Chats.getById(msg.chatId);
+    if (chat?.pinnedMessageId === messageId) {
+      Chats.update(msg.chatId, { pinnedMessageId: null });
+      io.to(msg.chatId).emit('chat_pinned', { chatId: msg.chatId, pinnedMessageId: null });
+    }
     io.to(msg.chatId).emit('message_deleted', { messageId });
   });
 
+  // Мультизакреп: помечаем сообщение pinned, шлём актуальный список закреплённых.
   socket.on('pin_message', ({ chatId, messageId }) => {
-    const db = DB;
-    const chat = db.chats.find(c => c.id === chatId);
-    if (!chat || !chat.members.includes(userId)) return;
-    chat.pinnedMessageId = messageId; saveDB();
-    io.to(chatId).emit('chat_pinned', { chatId, pinnedMessageId: messageId });
+    if (!Chats.isMember(chatId, userId)) return;
+    const msg = Messages.getById(messageId);
+    if (!msg || msg.chatId !== chatId) return;
+    Messages.patch(messageId, { pinned: true });
+    Chats.update(chatId, { pinnedMessageId: messageId }); // legacy совместимость
+    const pinnedIds = Messages.pinnedForChat(chatId).map(m => m.id);
+    io.to(chatId).emit('chat_pinned', { chatId, pinnedMessageId: messageId, pinnedIds });
   });
 
-  socket.on('unpin_message', ({ chatId }) => {
-    const db = DB;
-    const chat = db.chats.find(c => c.id === chatId);
-    if (!chat || !chat.members.includes(userId)) return;
-    chat.pinnedMessageId = null; saveDB();
-    io.to(chatId).emit('chat_pinned', { chatId, pinnedMessageId: null });
+  socket.on('unpin_message', ({ chatId, messageId }) => {
+    if (!Chats.isMember(chatId, userId)) return;
+    if (messageId) Messages.patch(messageId, { pinned: false });
+    else Messages.pinnedForChat(chatId).forEach(m => Messages.patch(m.id, { pinned: false }));
+    const pinnedIds = Messages.pinnedForChat(chatId).map(m => m.id);
+    const legacy = pinnedIds[pinnedIds.length - 1] || null;
+    Chats.update(chatId, { pinnedMessageId: legacy });
+    io.to(chatId).emit('chat_pinned', { chatId, pinnedMessageId: legacy, pinnedIds });
+  });
+
+  socket.on('vote_poll', ({ messageId, optionIdx }) => {
+    const msg = Messages.getById(messageId);
+    if (!msg || !msg.poll || !Chats.isMember(msg.chatId, userId)) return;
+    const poll = msg.poll;
+    const opt = poll.options?.[optionIdx];
+    if (!opt) return;
+    opt.votes = opt.votes || [];
+    const already = opt.votes.includes(userId);
+    if (!poll.multi) poll.options.forEach(o => { o.votes = (o.votes || []).filter(id => id !== userId); });
+    if (already) opt.votes = opt.votes.filter(id => id !== userId);
+    else opt.votes.push(userId);
+    Messages.patch(messageId, { poll });
+    io.to(msg.chatId).emit('poll_updated', { messageId, poll });
   });
 
   socket.on('add_reaction', ({ messageId, emoji }) => {
-    const db = DB;
-    const msg = db.messages.find(m => m.id === messageId);
+    const msg = Messages.getById(messageId);
     if (!msg) return;
-    if (!msg.reactions) msg.reactions = [];
-    const existing = msg.reactions.find(r => r.emoji === emoji);
+    const reactions = msg.reactions || [];
+    const existing = reactions.find(r => r.emoji === emoji);
     if (existing) {
       if (existing.userIds.includes(userId)) {
         existing.userIds = existing.userIds.filter(id => id !== userId);
-        if (!existing.userIds.length) msg.reactions = msg.reactions.filter(r => r.emoji !== emoji);
+        if (!existing.userIds.length) { const i = reactions.indexOf(existing); reactions.splice(i, 1); }
       } else existing.userIds.push(userId);
-    } else msg.reactions.push({ emoji, userIds: [userId] });
-    saveDB();
-    io.to(msg.chatId).emit('reaction_updated', { messageId, reactions: msg.reactions });
+    } else reactions.push({ emoji, userIds: [userId] });
+    Messages.patch(messageId, { reactions });
+    io.to(msg.chatId).emit('reaction_updated', { messageId, reactions });
   });
 
   // ── Управление чатами ──────────────────────────────────────────
   socket.on('delete_chat', ({ chatId }) => {
-    const db = DB;
-    const chat = db.chats.find(c => c.id === chatId);
-    if (!chat || !chat.members.includes(userId)) return;
-    db.chats = db.chats.filter(c => c.id !== chatId);
-    db.messages = db.messages.filter(m => m.chatId !== chatId);
-    saveDB();
+    if (!Chats.isMember(chatId, userId)) return;
+    Chats.delete(chatId);
     io.to(chatId).emit('chat_deleted', { chatId });
     io.socketsLeave(chatId);
   });
 
   socket.on('clear_history', ({ chatId }) => {
-    const db = DB;
-    const chat = db.chats.find(c => c.id === chatId);
-    if (!chat || !chat.members.includes(userId)) return;
-    db.messages = db.messages.filter(m => m.chatId !== chatId);
-    if (chat.pinnedMessageId) chat.pinnedMessageId = null;
-    saveDB();
+    if (!Chats.isMember(chatId, userId)) return;
+    Messages.clearChat(chatId);
+    Chats.update(chatId, { pinnedMessageId: null });
     io.to(chatId).emit('history_cleared', { chatId });
   });
 
   // ── Управление группами ────────────────────────────────────────
   socket.on('rename_chat', ({ chatId, name }) => {
-    const db = DB;
-    const chat = db.chats.find(c => c.id === chatId);
+    const chat = Chats.getById(chatId);
     if (!chat || chat.type !== 'group' || !chat.members.includes(userId) || !name?.trim()) return;
-    chat.name = name.trim();
-    saveDB();
-    io.to(chatId).emit('chat_updated', chat);
-    pushSystemMessage(chatId, `${socket.user.username} переименовал(а) группу в «${chat.name}»`);
+    const updated = Chats.update(chatId, { name: name.trim() });
+    io.to(chatId).emit('chat_updated', updated);
+    pushSystemMessage(chatId, `${socket.user.username} переименовал(а) группу в «${updated.name}»`);
   });
 
   socket.on('leave_chat', ({ chatId }) => {
-    const db = DB;
-    const chat = db.chats.find(c => c.id === chatId);
+    const chat = Chats.getById(chatId);
     if (!chat || chat.type !== 'group' || !chat.members.includes(userId)) return;
-    chat.members = chat.members.filter(id => id !== userId);
+    Chats.removeMember(chatId, userId);
     socket.leave(chatId);
     socket.emit('chat_deleted', { chatId });
-    if (chat.members.length === 0) {
-      db.chats = db.chats.filter(c => c.id !== chatId);
-      db.messages = db.messages.filter(m => m.chatId !== chatId);
-      saveDB();
-      return;
-    }
-    saveDB();
-    io.to(chatId).emit('chat_updated', chat);
+    const remaining = Chats.getById(chatId);
+    if (!remaining || remaining.members.length === 0) { Chats.delete(chatId); return; }
+    io.to(chatId).emit('chat_updated', remaining);
     pushSystemMessage(chatId, `${socket.user.username} вышел(а) из группы`);
   });
 
   socket.on('add_members', ({ chatId, userIds }) => {
-    const db = DB;
-    const chat = db.chats.find(c => c.id === chatId);
+    const chat = Chats.getById(chatId);
     if (!chat || chat.type !== 'group' || !chat.members.includes(userId) || !Array.isArray(userIds)) return;
     const added = [];
     for (const uid of userIds) {
-      if (!chat.members.includes(uid) && db.users.find(u => u.id === uid)) {
-        chat.members.push(uid); added.push(uid);
-      }
+      if (!chat.members.includes(uid) && Users.getById(uid)) { Chats.addMember(chatId, uid); added.push(uid); }
     }
     if (!added.length) return;
-    saveDB();
-    added.forEach(uid => { joinUserToChat(uid, chatId); emitToUser(uid, 'new_chat', chat); });
-    io.to(chatId).emit('chat_updated', chat);
-    const names = added.map(uid => db.users.find(u => u.id === uid)?.username).filter(Boolean).join(', ');
+    const updated = Chats.getById(chatId);
+    added.forEach(uid => { joinUserToChat(uid, chatId); emitToUser(uid, 'new_chat', updated); });
+    io.to(chatId).emit('chat_updated', updated);
+    const names = added.map(uid => Users.getById(uid)?.username).filter(Boolean).join(', ');
     pushSystemMessage(chatId, `${socket.user.username} добавил(а): ${names}`);
   });
 
   socket.on('remove_member', ({ chatId, userId: targetId }) => {
-    const db = DB;
-    const chat = db.chats.find(c => c.id === chatId);
+    const chat = Chats.getById(chatId);
     if (!chat || chat.type !== 'group' || !chat.members.includes(userId)) return;
     if (userId !== chat.createdBy) return; // убирать других может только создатель
     if (targetId === chat.createdBy) return;
     if (!chat.members.includes(targetId)) return;
-    const targetName = db.users.find(u => u.id === targetId)?.username || 'участник';
-    chat.members = chat.members.filter(id => id !== targetId);
-    saveDB();
+    const targetName = Users.getById(targetId)?.username || 'участник';
+    Chats.removeMember(chatId, targetId);
     emitToUser(targetId, 'chat_deleted', { chatId });
     const set = onlineUsers.get(targetId);
     if (set) for (const sid of set) io.sockets.sockets.get(sid)?.leave(chatId);
-    io.to(chatId).emit('chat_updated', chat);
+    const updated = Chats.getById(chatId);
+    io.to(chatId).emit('chat_updated', updated);
     pushSystemMessage(chatId, `${socket.user.username} удалил(а) ${targetName} из группы`);
   });
 
   socket.on('set_status', ({ status }) => {
-    const db = DB;
-    const user = db.users.find(u => u.id === userId);
-    if (user) { user.status = status; saveDB(); }
+    Users.update(userId, { status });
     io.emit('user_status_detail', { userId, status });
   });
 
   socket.on('read_messages', ({ chatId }) => {
-    const db = DB;
-    let changed = false;
-    db.messages.filter(m => m.chatId === chatId && !m.readBy.includes(userId)).forEach(m => { m.readBy.push(userId); changed = true; });
-    if (changed) saveDB();
-    socket.to(chatId).emit('messages_read', { chatId, userId });
+    const changed = Messages.markChatRead(chatId, userId);
+    if (changed) socket.to(chatId).emit('messages_read', { chatId, userId });
   });
 
   socket.on('typing', ({ chatId }) => socket.to(chatId).emit('typing', { userId, username: socket.user.username, chatId }));
@@ -948,23 +952,19 @@ io.on('connection', (socket) => {
   // ── Offline queue flush ─────────────────────────────────────────────────────
   socket.on('flush_queue', ({ messages }) => {
     if (!Array.isArray(messages)) return;
-    const db = DB;
     for (const { chatId, text, file, sticker, voice, replyTo, clientId } of messages) {
-      const chat = db.chats.find(c => c.id === chatId && c.members.includes(userId));
-      if (!chat) continue;
-      if (db.messages.find(m => m.clientId === clientId)) continue; // deduplicate
-      const msg = {
+      if (!Chats.isMember(chatId, userId)) continue;
+      if (clientId && Messages.getByClientId(clientId)) continue; // deduplicate
+      const msg = Messages.create({
         id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
         clientId: clientId || null,
         chatId, senderId: userId, senderName: socket.user.username,
         text: text || null, file: file || null, voice: voice || null, sticker: sticker || null,
         forwardOf: null, replyTo: null, reactions: [], edited: false, deleted: false,
         createdAt: new Date().toISOString(), readBy: [userId]
-      };
-      db.messages.push(msg);
+      });
       io.to(chatId).emit('new_message', msg);
     }
-    if (messages.length) saveDB();
     socket.emit('queue_flushed', { ok: true });
   });
 
@@ -980,13 +980,157 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     const wentOffline = removeOnline(userId, socket.id);
     if (wentOffline) {
-      const u = DB.users.find(x => x.id === userId);
       const lastSeen = new Date().toISOString();
-      if (u) { u.lastSeen = lastSeen; saveDB(); }
+      Users.update(userId, { lastSeen });
       io.emit('user_status', { userId, online: false, lastSeen });
     }
   });
 });
+
+// ── Превью ссылок (Open Graph) ────────────────────────────────────────────────
+const linkPreviewCache = new Map(); // url -> { data, at }
+const LINK_CACHE_TTL = 6 * 3600 * 1000;
+
+function extractMeta(html, baseUrl) {
+  const pick = (...res) => { for (const re of res) { const m = html.match(re); if (m) return m[1].trim(); } return null; };
+  const ogTitle = pick(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i,
+                       /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i,
+                       /<title[^>]*>([^<]+)<\/title>/i);
+  const ogDesc = pick(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i,
+                      /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:description["']/i,
+                      /<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i);
+  let ogImage = pick(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i,
+                     /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+  const ogSite = pick(/<meta[^>]+property=["']og:site_name["'][^>]+content=["']([^"']+)["']/i);
+  if (ogImage && !/^https?:\/\//.test(ogImage)) {
+    try { ogImage = new URL(ogImage, baseUrl).href; } catch { ogImage = null; }
+  }
+  const decode = (s) => s && s.replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>');
+  if (!ogTitle && !ogDesc && !ogImage) return null;
+  return { title: decode(ogTitle), description: decode(ogDesc), image: ogImage, site: decode(ogSite), url: baseUrl };
+}
+
+app.get('/link-preview', authMiddleware, async (req, res) => {
+  const url = req.query.url;
+  if (!url || !/^https?:\/\//i.test(url)) return res.status(400).json({ error: 'bad url' });
+  const cached = linkPreviewCache.get(url);
+  if (cached && Date.now() - cached.at < LINK_CACHE_TTL) return res.json(cached.data || {});
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 6000);
+    const r = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NexoraBot/1.0)' }, redirect: 'follow' });
+    clearTimeout(t);
+    const ct = r.headers.get('content-type') || '';
+    if (!ct.includes('text/html')) { linkPreviewCache.set(url, { data: null, at: Date.now() }); return res.json({}); }
+    const html = (await r.text()).slice(0, 200000);
+    const data = extractMeta(html, r.url || url);
+    linkPreviewCache.set(url, { data, at: Date.now() });
+    res.json(data || {});
+  } catch (e) {
+    linkPreviewCache.set(url, { data: null, at: Date.now() });
+    res.json({});
+  }
+});
+
+// ── Закреплённые / запланированные ──────────────────────────────────────────────
+app.get('/messages/:chatId/pinned', authMiddleware, (req, res) => {
+  if (!Chats.isMember(req.params.chatId, req.user.id)) return res.status(403).json({ error: 'Нет доступа' });
+  res.json(Messages.pinnedForChat(req.params.chatId));
+});
+
+app.get('/messages/:chatId/scheduled', authMiddleware, (req, res) => {
+  if (!Chats.isMember(req.params.chatId, req.user.id)) return res.status(403).json({ error: 'Нет доступа' });
+  res.json(Messages.scheduledForChat(req.params.chatId, req.user.id));
+});
+
+// ── Stories (истории на 24ч) ─────────────────────────────────────────────────
+// Контакты = пользователи, с которыми есть общий чат
+function contactIds(userId) {
+  const ids = new Set();
+  for (const c of Chats.forUser(userId)) for (const m of c.members) if (m !== userId) ids.add(m);
+  return [...ids];
+}
+
+app.post('/stories', authMiddleware, (req, res) => {
+  const { mediaUrl, mediaType, caption } = req.body;
+  if (!mediaUrl) return res.status(400).json({ error: 'Нет медиа' });
+  const now = Date.now();
+  const story = Stories.create({
+    id: now.toString() + Math.random().toString(36).slice(2, 6),
+    userId: req.user.id, mediaUrl, mediaType: mediaType || 'image', caption: caption || null,
+    viewers: [], createdAt: new Date(now).toISOString(), expiresAt: new Date(now + 24 * 3600 * 1000).toISOString()
+  });
+  // Уведомляем контакты о новой истории
+  for (const cid of contactIds(req.user.id)) emitToUser(cid, 'story_added', { userId: req.user.id });
+  res.json(story);
+});
+
+app.get('/stories', authMiddleware, (req, res) => {
+  Stories.purgeExpired();
+  const authorIds = [req.user.id, ...contactIds(req.user.id)];
+  const stories = Stories.activeForUsers(authorIds);
+  // Группируем по автору
+  const byUser = {};
+  for (const s of stories) {
+    if ((DB_blockedCheck(s.userId, req.user.id))) continue;
+    (byUser[s.userId] ||= []).push(s);
+  }
+  const groups = Object.entries(byUser).map(([uid, items]) => {
+    const u = Users.getById(uid);
+    return {
+      userId: uid,
+      username: u?.displayName || u?.username || 'Пользователь',
+      avatar: u?.avatar || null,
+      stories: items,
+      allViewed: items.every(s => s.viewers.includes(req.user.id)),
+      isMine: uid === req.user.id
+    };
+  });
+  // Свои сначала, потом непросмотренные
+  groups.sort((a, b) => (a.isMine ? -1 : b.isMine ? 1 : (a.allViewed === b.allViewed ? 0 : a.allViewed ? 1 : -1)));
+  res.json(groups);
+});
+
+function DB_blockedCheck(authorId, viewerId) {
+  // автор заблокировал зрителя → не показываем
+  return Blocked.isBlocked(authorId, viewerId);
+}
+
+app.post('/stories/:id/view', authMiddleware, (req, res) => {
+  const s = Stories.addViewer(req.params.id, req.user.id);
+  if (s) emitToUser(s.userId, 'story_viewed', { storyId: s.id, viewerId: req.user.id });
+  res.json({ ok: true });
+});
+
+app.delete('/stories/:id', authMiddleware, (req, res) => {
+  Stories.delete(req.params.id, req.user.id);
+  res.json({ ok: true });
+});
+
+setInterval(() => { try { Stories.purgeExpired(); } catch {} }, 3600 * 1000);
+
+// ── Диспетчер запланированных сообщений ──────────────────────────────────────────
+async function dispatchScheduled() {
+  const due = Messages.dueScheduled(new Date().toISOString());
+  for (const m of due) {
+    const createdAt = new Date().toISOString();
+    Messages.markSent(m.id, createdAt);
+    const sent = Messages.getById(m.id);
+    io.to(m.chatId).emit('new_message', sent);
+    const chat = Chats.getById(m.chatId);
+    if (!chat) continue;
+    const sender = Users.getById(m.senderId);
+    const senderName = sender?.displayName || sender?.username || 'Сообщение';
+    const pushBody = m.sticker || m.text || (m.voice ? '🎤 Голосовое' : '📎 Файл');
+    for (const memberId of chat.members) {
+      if (memberId === m.senderId) continue;
+      if (Blocked.isBlocked(memberId, m.senderId)) continue;
+      if (!isOnline(memberId)) sendPushToUser(memberId, senderName, pushBody);
+      await sendWebPush(memberId, { title: senderName, body: pushBody, chatId: m.chatId, icon: sender?.avatar || '/icon-192.png' });
+    }
+  }
+}
+setInterval(() => { dispatchScheduled().catch(e => console.error('scheduler:', e.message)); }, 15000);
 
 if (isProd) {
   app.use(express.static(CLIENT_DIST));

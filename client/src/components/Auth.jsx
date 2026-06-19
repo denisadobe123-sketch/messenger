@@ -2,13 +2,16 @@ import { useState } from 'react';
 import { API_URL as API } from '../api.js';
 
 export default function Auth({ onAuth }) {
-  const [step, setStep] = useState('email'); // 'email' | 'code'
+  const [step, setStep] = useState('email'); // 'email' | 'code' | '2fa'
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [otpToken, setOtpToken] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [countdown, setCountdown] = useState(0);
+  const [tempToken, setTempToken] = useState('');
+  const [twoFaHint, setTwoFaHint] = useState('');
+  const [twoFaPassword, setTwoFaPassword] = useState('');
 
   function startCountdown() {
     setCountdown(60);
@@ -50,6 +53,29 @@ export default function Auth({ onAuth }) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Неверный код');
+      if (data.need2fa) {
+        setTempToken(data.tempToken); setTwoFaHint(data.hint || ''); setStep('2fa');
+        return;
+      }
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('user', JSON.stringify(data.user));
+      onAuth(data.user, data.token);
+    } catch (e) { setError(e.message); }
+    finally { setLoading(false); }
+  }
+
+  async function verify2fa(e) {
+    e?.preventDefault();
+    if (!twoFaPassword) { setError('Введи облачный пароль'); return; }
+    setError(''); setLoading(true);
+    try {
+      const res = await fetch(`${API}/auth/verify-2fa`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tempToken, password: twoFaPassword })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Неверный пароль');
       localStorage.setItem('token', data.token);
       localStorage.setItem('user', JSON.stringify(data.user));
       onAuth(data.user, data.token);
@@ -133,6 +159,29 @@ export default function Auth({ onAuth }) {
             </div>
             <button type="button" className="auth-back-btn" onClick={() => { setStep('email'); setCode(''); setError(''); }}>
               ← Изменить email
+            </button>
+          </form>
+        )}
+
+        {/* ── STEP 3: 2FA (облачный пароль) ── */}
+        {step === '2fa' && (
+          <form className="auth-form" onSubmit={verify2fa}>
+            <p className="auth-desc">🔐 Введи облачный пароль (двухэтапная защита)</p>
+            <input
+              className="auth-input"
+              type="password"
+              placeholder="Облачный пароль"
+              value={twoFaPassword}
+              onChange={e => setTwoFaPassword(e.target.value)}
+              autoFocus
+            />
+            {twoFaHint && <div className="auth-desc" style={{ fontSize: 13 }}>Подсказка: {twoFaHint}</div>}
+            {error && <div className="auth-error">{error}</div>}
+            <button className="auth-btn" type="submit" disabled={loading}>
+              {loading ? 'Проверка...' : 'Войти'}
+            </button>
+            <button type="button" className="auth-back-btn" onClick={() => { setStep('email'); setCode(''); setTwoFaPassword(''); setError(''); }}>
+              ← Начать сначала
             </button>
           </form>
         )}

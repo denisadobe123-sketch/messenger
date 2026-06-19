@@ -2,6 +2,8 @@ import { useState, useRef, useEffect } from 'react';
 import VoicePlayer from './VoicePlayer.jsx';
 import EmojiPicker from './EmojiPicker.jsx';
 import { VideoNotePlayer } from './VideoNote.jsx';
+import LinkPreview from './LinkPreview.jsx';
+import { renderText, firstUrl } from '../format.jsx';
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🔥', '🎉', '👎'];
 
@@ -38,10 +40,46 @@ function BurnCountdown({ burnAt }) {
   return <span className="burn-timer">🔥 {Math.ceil(left/3600)}ч</span>;
 }
 
+function PollView({ poll, currentUserId, onVote }) {
+  const total = poll.options.reduce((s, o) => s + (o.votes?.length || 0), 0);
+  const myVote = poll.options.some(o => o.votes?.includes(currentUserId));
+  return (
+    <div className="poll">
+      <div className="poll-q">{poll.question}</div>
+      {poll.multi && <div className="poll-sub">Можно выбрать несколько · {total} голосов</div>}
+      {!poll.multi && <div className="poll-sub">{total} голосов</div>}
+      {poll.options.map((o, i) => {
+        const cnt = o.votes?.length || 0;
+        const pct = total ? Math.round(cnt / total * 100) : 0;
+        const mine = o.votes?.includes(currentUserId);
+        return (
+          <button key={i} className={`poll-opt ${mine ? 'voted' : ''}`} onClick={() => onVote(i)}>
+            <div className="poll-opt-bar" style={{ width: (myVote || poll.public) ? `${pct}%` : 0 }} />
+            <span className="poll-opt-text">{mine ? '✓ ' : ''}{o.text}</span>
+            {(myVote || poll.public) && <span className="poll-opt-pct">{pct}%</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function LocationView({ location }) {
+  const { lat, lng, name } = location;
+  const href = `https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}#map=16/${lat}/${lng}`;
+  const img = `https://staticmap.openstreetmap.de/staticmap.php?center=${lat},${lng}&zoom=15&size=300x150&markers=${lat},${lng},red-pushpin`;
+  return (
+    <a className="loc-card" href={href} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}>
+      <img className="loc-map" src={img} alt="" loading="lazy" onError={e => { e.target.style.display = 'none'; }} />
+      <div className="loc-label">📍 {name || 'Геолокация'}</div>
+    </a>
+  );
+}
+
 export default function MessageItem({
   msg, isOwn, showSender, isRead, currentUserId, isPinned, highlighted,
   onReact, onReply, onEdit, onDelete, onPin, onUnpin, onScrollToReply, onForward,
-  onImageClick, selectMode, selected, onToggleSelect, chatMemberCount
+  onImageClick, selectMode, selected, onToggleSelect, chatMemberCount, token, onVote
 }) {
   const [showPicker, setShowPicker] = useState(false);
   const [showFullEmoji, setShowFullEmoji] = useState(false);
@@ -177,7 +215,13 @@ export default function MessageItem({
         )
       )}
 
-      {msg.text && <div className="msg-text">{msg.text}</div>}
+      {msg.poll && <PollView poll={msg.poll} currentUserId={currentUserId} onVote={idx => onVote?.(msg.id, idx)} />}
+      {msg.location && <LocationView location={msg.location} />}
+
+      {msg.text && <div className="msg-text">{renderText(msg.text)}</div>}
+      {msg.text && !msg.file && firstUrl(msg.text) && (
+        <LinkPreview url={firstUrl(msg.text)} token={token} />
+      )}
 
       {msg.reactions?.length > 0 && (
         <div className="msg-reactions">

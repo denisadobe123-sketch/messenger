@@ -7,6 +7,7 @@ import { getSocket } from '../socket.js';
 import { API_URL } from '../api.js';
 import { tap } from '../native.js';
 import { enqueue } from '../offlineQueue.js';
+import { encryptFor, decryptFrom } from '../e2e.js';
 
 const DRAFTS_KEY = 'chat_drafts';
 
@@ -44,6 +45,15 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   const [replyingTo, setReplyingTo] = useState(null);
   const [editingMsg, setEditingMsg] = useState(null);
   const [pinnedMessageId, setPinnedMessageId] = useState(null);
+  const [pinnedIds, setPinnedIds] = useState([]);
+  const [pinnedIndex, setPinnedIndex] = useState(0);
+  const [showMedia, setShowMedia] = useState(false);
+  const [showScheduled, setShowScheduled] = useState(false);
+  const [scheduledList, setScheduledList] = useState([]);
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
+  const [scheduleValue, setScheduleValue] = useState('');
+  const [showPollModal, setShowPollModal] = useState(false);
+  const [decrypted, setDecrypted] = useState({});
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -79,6 +89,8 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
 
   const bottomRef = useRef(null);
   const fileRef = useRef(null);
+  const inputRef = useRef(null);
+  const [showFormatBar, setShowFormatBar] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const typingTimeout = useRef(null);
   const socket = getSocket();
@@ -88,8 +100,13 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     setMessages([]); setText(''); setFileToSend(null); setTypingUsers(new Map());
     setReplyingTo(null); setEditingMsg(null); setShowSearch(false); setSearchQuery(''); setSearchResults([]);
     setPinnedMessageId(chat.pinnedMessageId || null);
+    setPinnedIds([]); setPinnedIndex(0); setDecrypted({});
+    setShowMedia(false); setShowScheduled(false);
     setSelectMode(false); setSelectedIds(new Set());
     setShowHeaderMenu(false); setShowGroupInfo(false);
+
+    fetch(`${API_URL}/messages/${chat.id}/pinned`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(list => setPinnedIds(Array.isArray(list) ? list.map(m => m.id) : [])).catch(() => {});
 
     const unreadCount = chat.unread || 0;
     fetch(`${API_URL}/messages/${chat.id}`, { headers: { Authorization: `Bearer ${token}` } })
@@ -119,14 +136,19 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     function onReaction({ messageId, reactions }) {
       setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m));
     }
+    function onPollUpdated({ messageId, poll }) {
+      setMessages(prev => prev.map(m => m.id === messageId ? { ...m, poll } : m));
+    }
     function onEdited({ messageId, text, edited }) {
       setMessages(prev => prev.map(m => m.id === messageId ? { ...m, text, edited } : m));
     }
     function onDeleted({ messageId }) {
       setMessages(prev => prev.map(m => m.id === messageId ? { ...m, deleted: true, text: null, file: null, voice: null, sticker: null } : m));
     }
-    function onPinned({ chatId, pinnedMessageId }) {
-      if (chatId === chat?.id) setPinnedMessageId(pinnedMessageId);
+    function onPinned({ chatId, pinnedMessageId, pinnedIds }) {
+      if (chatId !== chat?.id) return;
+      setPinnedMessageId(pinnedMessageId);
+      if (Array.isArray(pinnedIds)) { setPinnedIds(pinnedIds); setPinnedIndex(0); }
     }
     function onTyping({ userId, username, chatId }) {
       if (chatId !== chat?.id || userId === currentUser.id) return;
@@ -143,6 +165,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     socket.on('new_message', onMessage);
     socket.on('history_cleared', onHistoryCleared);
     socket.on('reaction_updated', onReaction);
+    socket.on('poll_updated', onPollUpdated);
     socket.on('message_edited', onEdited);
     socket.on('message_deleted', onDeleted);
     socket.on('chat_pinned', onPinned);
@@ -152,6 +175,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
       socket.off('new_message', onMessage);
       socket.off('history_cleared', onHistoryCleared);
       socket.off('reaction_updated', onReaction);
+      socket.off('poll_updated', onPollUpdated);
       socket.off('message_edited', onEdited);
       socket.off('message_deleted', onDeleted);
       socket.off('chat_pinned', onPinned);
@@ -195,6 +219,20 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     return () => clearTimeout(timer);
   }, [text, chat?.id]);
 
+  // Расшифровка сообщений секретного чата (E2E)
+  useEffect(() => {
+    if (!isSecret || !otherId) return;
+    const todo = messages.filter(m => m.enc && m.text && decrypted[m.id] === undefined);
+    if (!todo.length) return;
+    let alive = true;
+    (async () => {
+      const updates = {};
+      for (const m of todo) updates[m.id] = await decryptFrom(otherId, token, m.text);
+      if (alive) setDecrypted(prev => ({ ...prev, ...updates }));
+    })();
+    return () => { alive = false; };
+  }, [messages, isSecret, otherId, token]);
+
   // Track scroll position for "scroll to bottom" button
   useEffect(() => {
     const el = messagesWrapRef.current;
@@ -228,16 +266,32 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     typingTimeout.current = setTimeout(() => socket.emit('stop_typing', { chatId: chat.id }), 2000);
   }
 
-  async function send() {
+  async function send(scheduledAt = null) {
     if (editingMsg) {
       if (!text.trim()) return;
-      socket.emit('edit_message', { messageId: editingMsg.id, text: text.trim() });
+      let editText = text.trim();
+      if (isSecret && otherId) { try { editText = await encryptFor(otherId, token, editText); } catch {} }
+      socket.emit('edit_message', { messageId: editingMsg.id, text: editText });
       setEditingMsg(null); setText('');
       return;
     }
 
     if (!text.trim() && !fileToSend) return;
     if (!socket || !chat) return;
+
+    // Секретный чат — шифруем текст на устройстве (E2E), файлы/голос не поддерживаются
+    if (isSecret) {
+      if (!text.trim()) { alert('В секретных чатах поддерживается только текст'); return; }
+      if (!otherId) return;
+      let cipher;
+      try { cipher = await encryptFor(otherId, token, text.trim()); }
+      catch { alert('Не удалось зашифровать — у собеседника нет ключа (пусть зайдёт в приложение)'); return; }
+      socket.emit('send_message', { chatId: chat.id, text: cipher, enc: true, replyTo: replyingTo?.id || null, burnAfter: burnAfter || null });
+      tap('light');
+      setText(''); setReplyingTo(null);
+      if (socket) socket.emit('stop_typing', { chatId: chat.id });
+      return;
+    }
 
     let fileData = null;
     if (fileToSend) {
@@ -260,6 +314,15 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     const payload = { chatId: chat.id, text: text.trim() || null, file: fileData, replyTo: replyingTo?.id || null, burnAfter: burnAfter || null };
     tap('light');
 
+    // Запланированная отправка — только онлайн, без оптимистичного добавления
+    if (scheduledAt) {
+      socket.emit('send_message', { ...payload, scheduledAt }, () => {});
+      setText(''); setFileToSend(null); setReplyingTo(null);
+      const when = new Date(scheduledAt).toLocaleString('ru', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+      alert(`⏰ Запланировано на ${when}`);
+      return;
+    }
+
     if (!navigator.onLine) {
       const queued = await enqueue(payload);
       const optimistic = {
@@ -281,14 +344,72 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   function onKeyDown(e) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
     if (e.key === 'Escape') { setReplyingTo(null); setEditingMsg(null); setText(''); }
+    // Горячие клавиши форматирования (Ctrl/Cmd+B/I)
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey) {
+      if (e.key === 'b') { e.preventDefault(); wrapSelection('**', '**'); }
+      else if (e.key === 'i') { e.preventDefault(); wrapSelection('*', '*'); }
+    }
+  }
+
+  // Оборачивает выделенный фрагмент текста маркерами форматирования
+  function wrapSelection(before, after) {
+    const el = inputRef.current;
+    if (!el) return;
+    const start = el.selectionStart ?? text.length;
+    const end = el.selectionEnd ?? text.length;
+    const sel = text.slice(start, end) || 'текст';
+    const next = text.slice(0, start) + before + sel + after + text.slice(end);
+    setText(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      el.selectionStart = start + before.length;
+      el.selectionEnd = start + before.length + sel.length;
+    });
   }
 
   function handleReact(messageId, emoji) { socket?.emit('add_reaction', { messageId, emoji }); }
+  function handleVote(messageId, optionIdx) { socket?.emit('vote_poll', { messageId, optionIdx }); }
+
+  function sendPoll(poll) {
+    if (!socket || !chat) return;
+    socket.emit('send_message', { chatId: chat.id, poll });
+    setShowPollModal(false);
+  }
+
+  function shareLocation() {
+    setShowAttachMenu(false);
+    if (!navigator.geolocation) { alert('Геолокация не поддерживается'); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => socket?.emit('send_message', { chatId: chat.id, location: { lat: +pos.coords.latitude.toFixed(6), lng: +pos.coords.longitude.toFixed(6) } }),
+      () => alert('Не удалось получить геолокацию'),
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  }
   function handleReply(msg) { setEditingMsg(null); setReplyingTo(msg); }
   function handleEdit(msg) { setReplyingTo(null); setEditingMsg(msg); setText(msg.text || ''); }
   function handleDelete(messageId) { if (confirm('Удалить сообщение?')) socket?.emit('delete_message', { messageId }); }
   function handlePin(messageId) { socket?.emit('pin_message', { chatId: chat.id, messageId }); }
-  function handleUnpin() { socket?.emit('unpin_message', { chatId: chat.id }); }
+  function handleUnpin(messageId) { socket?.emit('unpin_message', { chatId: chat.id, messageId }); }
+
+  function loadScheduled() {
+    fetch(`${API_URL}/messages/${chat.id}/scheduled`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(list => setScheduledList(Array.isArray(list) ? list : [])).catch(() => {});
+  }
+  function openSchedule() {
+    if (!text.trim() && !fileToSend) { alert('Сначала напиши сообщение'); return; }
+    const d = new Date(Date.now() + 3600000);
+    d.setSeconds(0, 0);
+    // Формат для datetime-local: YYYY-MM-DDTHH:mm в локальном времени
+    const pad = n => String(n).padStart(2, '0');
+    setScheduleValue(`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
+    setShowScheduleModal(true);
+  }
+  function confirmSchedule() {
+    const when = new Date(scheduleValue);
+    if (isNaN(when) || when <= new Date()) { alert('Выбери время в будущем'); return; }
+    send(when.toISOString());
+    setShowScheduleModal(false);
+  }
   function handleForward(msg) { setForwardingMsg(msg); }
 
   function sendForward(targetChatId) {
@@ -504,7 +625,8 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     setUploading(false);
   }
 
-  const otherId = chat?.type === 'private' ? chat.members?.find(id => id !== currentUser.id) : null;
+  const isSecret = chat?.type === 'secret';
+  const otherId = (chat?.type === 'private' || isSecret) ? chat.members?.find(id => id !== currentUser.id) : null;
   const isOnline = otherId ? onlineUsers.has(otherId) : false;
   const otherStatus = otherId ? (userStatuses?.get(otherId) || (isOnline ? 'online' : 'offline')) : 'online';
   const lastSeenIso = otherId ? (userLastSeen?.get(otherId) || chat?.otherUserLastSeen) : null;
@@ -526,7 +648,21 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
 
   const items = groupByDay(messages);
   const typingList = [...typingUsers.values()];
-  const pinnedMsg = pinnedMessageId ? messages.find(m => m.id === pinnedMessageId) : null;
+  // Мультизакреп: показываем закреплённые из pinnedIds (fallback на legacy pinnedMessageId)
+  const effectivePinIds = pinnedIds.length ? pinnedIds : (pinnedMessageId ? [pinnedMessageId] : []);
+  const pinnedMsgs = effectivePinIds.map(id => messages.find(m => m.id === id)).filter(m => m && !m.deleted);
+  const curPinIdx = Math.min(pinnedIndex, Math.max(0, pinnedMsgs.length - 1));
+  const pinnedMsg = pinnedMsgs[curPinIdx] || null;
+  function cyclePinned() {
+    if (pinnedMsgs.length <= 1) { if (pinnedMsg) scrollToMessage(pinnedMsg.id); return; }
+    const next = (curPinIdx + 1) % pinnedMsgs.length;
+    setPinnedIndex(next);
+    scrollToMessage(pinnedMsgs[next].id);
+  }
+  // Медиа/файлы/ссылки для вкладки «Общие медиа»
+  const mediaMsgs = messages.filter(m => m.file?.mimetype?.startsWith('image/') || m.file?.mimetype?.startsWith('video/'));
+  const fileMsgs = messages.filter(m => m.file && !m.file.mimetype?.startsWith('image/') && !m.file.mimetype?.startsWith('video/'));
+  const linkMsgs = messages.filter(m => !m.deleted && m.text && /https?:\/\//.test(m.text));
   const recMins = Math.floor(recordTime / 60), recSecs = recordTime % 60;
 
   return (
@@ -559,7 +695,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
           style={{ cursor: chat.type === 'group' ? 'pointer' : 'default' }}
           onClick={() => chat.type === 'group' && setShowGroupInfo(true)}
         >
-          <div className="chat-header-name">{chat.displayName || chat.name}</div>
+          <div className="chat-header-name">{isSecret && '🔒 '}{chat.displayName || chat.name}</div>
           {chat.type === 'private' && chat.otherUserHandle && (
             <div className="chat-header-handle">@{chat.otherUserHandle}</div>
           )}
@@ -598,6 +734,8 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
               {chat.type === 'group' && (
                 <button className="msg-context-item" onClick={() => { setShowGroupInfo(true); setShowHeaderMenu(false); }}>ℹ️ Инфо о группе</button>
               )}
+              <button className="msg-context-item" onClick={() => { setShowMedia(true); setShowHeaderMenu(false); }}>🖼 Общие медиа</button>
+              <button className="msg-context-item" onClick={() => { loadScheduled(); setShowScheduled(true); setShowHeaderMenu(false); }}>⏰ Запланированные</button>
               <button className="msg-context-item" onClick={handleClearHistory}>🧹 Очистить историю</button>
               {chat.type === 'private' && (
                 <button className="msg-context-item" onClick={handleToggleBlock}>
@@ -634,14 +772,16 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
         </div>
       )}
 
-      {pinnedMsg && !pinnedMsg.deleted && (
-        <div className="pinned-banner" onClick={() => scrollToMessage(pinnedMsg.id)}>
+      {pinnedMsg && (
+        <div className="pinned-banner" onClick={cyclePinned}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z"/></svg>
           <div className="pinned-banner-text">
-            <div className="pinned-banner-label">Закреплено</div>
+            <div className="pinned-banner-label">
+              Закреплённое{pinnedMsgs.length > 1 ? ` ${curPinIdx + 1}/${pinnedMsgs.length}` : ''}
+            </div>
             <div className="pinned-banner-content">{pinnedMsg.sticker || pinnedMsg.text || (pinnedMsg.voice ? '🎤 Голосовое' : '📎 Файл')}</div>
           </div>
-          <button className="pinned-unpin-btn" onClick={e => { e.stopPropagation(); handleUnpin(); }}>✕</button>
+          <button className="pinned-unpin-btn" onClick={e => { e.stopPropagation(); handleUnpin(pinnedMsg.id); }}>✕</button>
         </div>
       )}
 
@@ -665,12 +805,12 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
               <Fragment key={item.msg.id}>
               {item.msg.id === firstUnreadId && <div className="unread-divider">Непрочитанные сообщения</div>}
               <MessageItem
-                msg={item.msg}
+                msg={item.msg.enc ? { ...item.msg, text: decrypted[item.msg.id] ?? '🔒 Расшифровка…' } : item.msg}
                 isOwn={item.msg.senderId === currentUser.id}
                 showSender={chat.type === 'group'}
                 isRead={item.msg.readBy?.length > 1}
                 currentUserId={currentUser.id}
-                isPinned={item.msg.id === pinnedMessageId}
+                isPinned={effectivePinIds.includes(item.msg.id)}
                 highlighted={item.msg.id === highlightedId}
                 selectMode={selectMode}
                 selected={selectedIds.has(item.msg.id)}
@@ -685,6 +825,8 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
                 onForward={handleForward}
                 onImageClick={setLightboxImg}
                 chatMemberCount={chat.members?.length || 2}
+                token={token}
+                onVote={handleVote}
               />
               </Fragment>
             )
@@ -778,6 +920,12 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
                   <input type="file" style={{ display: 'none' }}
                     onChange={e => { const f = e.target.files?.[0]; if (f) setFileToSend(f); e.target.value = ''; setShowAttachMenu(false); }} />
                 </label>
+                <button className="attach-menu-item" onClick={() => { setShowPollModal(true); setShowAttachMenu(false); }}>
+                  <span className="attach-menu-icon">📊</span> Опрос
+                </button>
+                <button className="attach-menu-item" onClick={shareLocation}>
+                  <span className="attach-menu-icon">📍</span> Геолокация
+                </button>
               </div>
             )}
           </div>
@@ -805,7 +953,28 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
               </div>
             )}
           </div>
+          <div style={{ position: 'relative', display: 'flex' }}>
+            <button className="attach-btn" onClick={() => setShowFormatBar(p => !p)} title="Форматирование"
+              style={{ fontWeight: 700, fontStyle: 'italic', color: showFormatBar ? 'var(--accent)' : 'var(--text-secondary)' }}>A</button>
+            {showFormatBar && (
+              <div className="format-bar">
+                <button onClick={() => wrapSelection('**', '**')} title="Жирный (Ctrl+B)"><b>Ж</b></button>
+                <button onClick={() => wrapSelection('*', '*')} title="Курсив (Ctrl+I)"><i>К</i></button>
+                <button onClick={() => wrapSelection('__', '__')} title="Подчёркнутый"><u>П</u></button>
+                <button onClick={() => wrapSelection('~~', '~~')} title="Зачёркнутый"><s>З</s></button>
+                <button onClick={() => wrapSelection('||', '||')} title="Спойлер">▢</button>
+                <button onClick={() => wrapSelection('`', '`')} title="Моноширинный">{'</>'}</button>
+              </div>
+            )}
+          </div>
+          <button className="attach-btn" onClick={openSchedule} title="Отложенная отправка"
+            style={{ color: 'var(--text-secondary)' }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>
+            </svg>
+          </button>
           <textarea
+            ref={inputRef}
             className="msg-input" placeholder="Написать сообщение..." value={text}
             onChange={handleTextChange} onKeyDown={onKeyDown} rows={1}
             onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'; }}
@@ -877,6 +1046,62 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
         </div>
       )}
 
+      {showPollModal && (
+        <PollComposer onCreate={sendPoll} onClose={() => setShowPollModal(false)} />
+      )}
+
+      {showScheduleModal && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowScheduleModal(false)}>
+          <div className="modal">
+            <h3>Отложенная отправка</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginTop: -4 }}>Когда отправить сообщение?</p>
+            <input className="modal-input" type="datetime-local" value={scheduleValue}
+              onChange={e => setScheduleValue(e.target.value)} autoFocus />
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={() => setShowScheduleModal(false)}>Отмена</button>
+              <button className="btn btn-primary" onClick={confirmSchedule}>Запланировать</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showScheduled && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowScheduled(false)}>
+          <div className="modal">
+            <h3>⏰ Запланированные</h3>
+            <div className="modal-members">
+              {scheduledList.length === 0 && <div className="empty-state" style={{ padding: 20 }}>Нет запланированных сообщений</div>}
+              {scheduledList.map(m => (
+                <div key={m.id} className="scheduled-item">
+                  <div className="scheduled-when">{new Date(m.scheduledAt).toLocaleString('ru', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</div>
+                  <div className="scheduled-text">{m.text || (m.file ? '📎 Файл' : m.sticker || '—')}</div>
+                  <button className="icon-btn" style={{ color: 'var(--danger)' }} title="Отменить"
+                    onClick={() => { socket?.emit('delete_message', { messageId: m.id }); setScheduledList(prev => prev.filter(x => x.id !== m.id)); }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={() => setShowScheduled(false)}>Закрыть</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showMedia && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowMedia(false)}>
+          <div className="modal">
+            <h3>Общие медиа</h3>
+            <MediaTabs mediaMsgs={mediaMsgs} fileMsgs={fileMsgs} linkMsgs={linkMsgs}
+              onImageClick={(url) => { setShowMedia(false); setLightboxImg(url); }} />
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={() => setShowMedia(false)}>Закрыть</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showGroupInfo && chat.type === 'group' && (
         <GroupInfo
           chat={chat}
@@ -890,6 +1115,96 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
           onLeave={handleLeaveGroup}
         />
       )}
+    </div>
+  );
+}
+
+function PollComposer({ onCreate, onClose }) {
+  const [question, setQuestion] = useState('');
+  const [options, setOptions] = useState(['', '']);
+  const [multi, setMulti] = useState(false);
+
+  function setOpt(i, v) { setOptions(prev => prev.map((o, idx) => idx === i ? v : o)); }
+  function addOpt() { if (options.length < 10) setOptions(prev => [...prev, '']); }
+  function removeOpt(i) { if (options.length > 2) setOptions(prev => prev.filter((_, idx) => idx !== i)); }
+
+  function create() {
+    const opts = options.map(o => o.trim()).filter(Boolean);
+    if (!question.trim() || opts.length < 2) { alert('Нужен вопрос и минимум 2 варианта'); return; }
+    onCreate({ question: question.trim(), multi, public: true, options: opts.map(text => ({ text, votes: [] })) });
+  }
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <h3>📊 Создать опрос</h3>
+        <input className="modal-input" placeholder="Вопрос" value={question} onChange={e => setQuestion(e.target.value)} autoFocus />
+        {options.map((o, i) => (
+          <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+            <input className="modal-input" style={{ marginBottom: 0 }} placeholder={`Вариант ${i + 1}`} value={o} onChange={e => setOpt(i, e.target.value)} />
+            {options.length > 2 && <button className="icon-btn" onClick={() => removeOpt(i)} style={{ color: 'var(--danger)' }}>✕</button>}
+          </div>
+        ))}
+        {options.length < 10 && <button className="btn btn-secondary" style={{ width: '100%', marginBottom: 10 }} onClick={addOpt}>＋ Добавить вариант</button>}
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, cursor: 'pointer' }}>
+          <input type="checkbox" checked={multi} onChange={e => setMulti(e.target.checked)} />
+          <span>Несколько ответов</span>
+        </label>
+        <div className="modal-actions">
+          <button className="btn btn-secondary" onClick={onClose}>Отмена</button>
+          <button className="btn btn-primary" onClick={create}>Создать</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MediaTabs({ mediaMsgs, fileMsgs, linkMsgs, onImageClick }) {
+  const [tab, setTab] = useState('media');
+  return (
+    <div className="media-tabs-wrap">
+      <div className="media-tabs">
+        <button className={`media-tab ${tab === 'media' ? 'active' : ''}`} onClick={() => setTab('media')}>Медиа {mediaMsgs.length}</button>
+        <button className={`media-tab ${tab === 'files' ? 'active' : ''}`} onClick={() => setTab('files')}>Файлы {fileMsgs.length}</button>
+        <button className={`media-tab ${tab === 'links' ? 'active' : ''}`} onClick={() => setTab('links')}>Ссылки {linkMsgs.length}</button>
+      </div>
+      <div className="media-content">
+        {tab === 'media' && (
+          mediaMsgs.length === 0 ? <div className="empty-state" style={{ padding: 20 }}>Нет медиа</div> : (
+            <div className="media-grid">
+              {mediaMsgs.map(m => m.file.mimetype?.startsWith('image/')
+                ? <img key={m.id} src={m.file.url} alt="" className="media-grid-item" onClick={() => onImageClick(m.file.url)} />
+                : <a key={m.id} href={m.file.url} target="_blank" rel="noreferrer" className="media-grid-item media-grid-video">🎬</a>
+              )}
+            </div>
+          )
+        )}
+        {tab === 'files' && (
+          fileMsgs.length === 0 ? <div className="empty-state" style={{ padding: 20 }}>Нет файлов</div> : (
+            <div className="media-file-list">
+              {fileMsgs.map(m => (
+                <a key={m.id} href={m.file.url} target="_blank" rel="noreferrer" download={m.file.name} className="media-file-row">
+                  <span className="media-file-ic">📎</span>
+                  <span className="media-file-nm">{m.file.name}</span>
+                </a>
+              ))}
+            </div>
+          )
+        )}
+        {tab === 'links' && (
+          linkMsgs.length === 0 ? <div className="empty-state" style={{ padding: 20 }}>Нет ссылок</div> : (
+            <div className="media-file-list">
+              {linkMsgs.map(m => {
+                const url = (m.text.match(/https?:\/\/[^\s]+/) || [])[0];
+                return <a key={m.id} href={url} target="_blank" rel="noreferrer" className="media-file-row">
+                  <span className="media-file-ic">🔗</span>
+                  <span className="media-file-nm">{url}</span>
+                </a>;
+              })}
+            </div>
+          )
+        )}
+      </div>
     </div>
   );
 }

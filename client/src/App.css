@@ -1799,3 +1799,189 @@ body {
 }
 .attach-menu-item:hover, .attach-menu-item:active { background: var(--bg-hover); }
 .attach-menu-icon { font-size: 18px; }
+
+/* ── Форматирование текста ─────────────────────────────────────── */
+.fmt-code {
+  font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.9em; background: rgba(127,127,127,0.18);
+  padding: 1px 5px; border-radius: 5px;
+}
+.fmt-pre {
+  font-family: 'SF Mono', ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.86em; background: rgba(127,127,127,0.16);
+  padding: 8px 10px; border-radius: 8px; margin: 4px 0;
+  overflow-x: auto; white-space: pre-wrap; word-break: break-word;
+}
+.fmt-pre code { background: none; padding: 0; }
+.fmt-link { color: var(--accent); text-decoration: none; word-break: break-all; }
+.fmt-link:hover { text-decoration: underline; }
+.fmt-mention { color: var(--accent); font-weight: 500; cursor: pointer; }
+.fmt-spoiler {
+  background: var(--text-primary); color: transparent; border-radius: 4px;
+  cursor: pointer; transition: color .2s, background .2s; padding: 0 2px;
+  filter: blur(0.2px);
+}
+.fmt-spoiler.revealed { background: rgba(127,127,127,0.18); color: inherit; filter: none; }
+
+/* ── Превью ссылок ─────────────────────────────────────────────── */
+.link-preview {
+  display: block; margin-top: 6px; border-left: 3px solid var(--accent);
+  background: rgba(127,127,127,0.10); border-radius: 8px; overflow: hidden;
+  text-decoration: none; color: inherit; max-width: 320px;
+}
+.link-preview-img { width: 100%; max-height: 180px; object-fit: cover; display: block; }
+.link-preview-body { padding: 7px 10px; }
+.link-preview-site { font-size: 11px; color: var(--accent); font-weight: 600; margin-bottom: 2px; }
+.link-preview-title { font-size: 13px; font-weight: 600; margin-bottom: 2px; line-height: 1.25; }
+.link-preview-desc {
+  font-size: 12px; color: var(--text-secondary); line-height: 1.3;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+/* ── Панель форматирования ─────────────────────────────────────── */
+.format-bar {
+  position: absolute; bottom: 44px; left: 0; z-index: 60;
+  display: flex; gap: 2px; padding: 4px;
+  background: var(--bg-elevated, var(--bg-secondary)); border: 1px solid var(--border);
+  border-radius: 10px; box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+}
+.format-bar button {
+  min-width: 30px; height: 30px; border: none; background: transparent;
+  color: var(--text-primary); border-radius: 6px; cursor: pointer; font-size: 14px;
+}
+.format-bar button:hover { background: var(--bg-hover); }
+
+/* ── Глобальный поиск сообщений ────────────────────────────────── */
+.search-messages-section { padding: 4px 0 12px; }
+.search-section-title {
+  font-size: 12px; font-weight: 600; color: var(--text-secondary);
+  padding: 8px 16px 4px; text-transform: uppercase; letter-spacing: .4px;
+}
+.search-msg-item {
+  padding: 8px 16px; cursor: pointer; border-bottom: 1px solid var(--border);
+}
+.search-msg-item:hover { background: var(--bg-hover); }
+.search-msg-chat { font-size: 13px; font-weight: 600; color: var(--accent); }
+.search-msg-text {
+  font-size: 13px; color: var(--text-primary); margin: 2px 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.search-msg-sender { color: var(--text-secondary); }
+.search-msg-date { font-size: 11px; color: var(--text-secondary); }
+
+/* ── Общие медиа ───────────────────────────────────────────────── */
+.media-tabs { display: flex; gap: 4px; margin-bottom: 10px; border-bottom: 1px solid var(--border); }
+.media-tab {
+  flex: 1; padding: 8px; border: none; background: none; cursor: pointer;
+  color: var(--text-secondary); font-size: 13px; border-bottom: 2px solid transparent;
+}
+.media-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.media-content { max-height: 50vh; overflow-y: auto; }
+.media-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.media-grid-item {
+  width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; cursor: pointer; background: var(--bg-hover);
+}
+.media-grid-video { display: flex; align-items: center; justify-content: center; font-size: 28px; text-decoration: none; }
+.media-file-list { display: flex; flex-direction: column; gap: 2px; }
+.media-file-row {
+  display: flex; align-items: center; gap: 10px; padding: 10px 8px; border-radius: 8px;
+  text-decoration: none; color: var(--text-primary); font-size: 13px;
+}
+.media-file-row:hover { background: var(--bg-hover); }
+.media-file-ic { font-size: 18px; flex: none; }
+.media-file-nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; word-break: break-all; }
+
+/* ── Запланированные ───────────────────────────────────────────── */
+.scheduled-item { display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 8px; }
+.scheduled-item:hover { background: var(--bg-hover); }
+.scheduled-when { font-size: 12px; color: var(--accent); font-weight: 600; flex: none; }
+.scheduled-text { flex: 1; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── Опросы ────────────────────────────────────────────────────── */
+.poll { margin: 2px 0 4px; min-width: 220px; }
+.poll-q { font-weight: 600; font-size: 14px; margin-bottom: 2px; }
+.poll-sub { font-size: 11px; color: var(--text-secondary); margin-bottom: 8px; }
+.poll-opt {
+  position: relative; display: flex; align-items: center; width: 100%;
+  padding: 9px 12px; margin-bottom: 6px; border: 1px solid var(--border);
+  border-radius: 10px; background: transparent; cursor: pointer; overflow: hidden; text-align: left;
+}
+.poll-opt-bar {
+  position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent);
+  opacity: 0.16; transition: width .4s ease; border-radius: 10px;
+}
+.poll-opt.voted { border-color: var(--accent); }
+.poll-opt-text { position: relative; flex: 1; font-size: 13px; color: var(--text-primary); }
+.poll-opt-pct { position: relative; font-size: 12px; font-weight: 600; color: var(--accent); }
+
+/* ── Геолокация ────────────────────────────────────────────────── */
+.loc-card {
+  display: block; margin: 2px 0; border-radius: 10px; overflow: hidden;
+  text-decoration: none; max-width: 300px; background: var(--bg-hover);
+}
+.loc-map { width: 100%; height: 150px; object-fit: cover; display: block; }
+.loc-label { padding: 8px 10px; font-size: 13px; color: var(--text-primary); }
+
+/* ── Истории (Stories) ─────────────────────────────────────────── */
+.stories-bar {
+  display: flex; gap: 12px; padding: 10px 14px; overflow-x: auto;
+  border-bottom: 1px solid var(--border); scrollbar-width: none;
+}
+.stories-bar::-webkit-scrollbar { display: none; }
+.story-avatar {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  cursor: pointer; flex: none; width: 62px;
+}
+.story-ring {
+  width: 56px; height: 56px; border-radius: 50%; padding: 2px;
+  background: linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888);
+  display: flex; align-items: center; justify-content: center;
+}
+.story-ring.viewed { background: var(--border); }
+.story-ring.add { background: var(--accent); }
+.story-ring img, .story-ring .story-init {
+  width: 100%; height: 100%; border-radius: 50%; object-fit: cover;
+  background: var(--bg-secondary); display: flex; align-items: center; justify-content: center;
+  font-weight: 600; color: var(--text-primary); border: 2px solid var(--bg-primary);
+}
+.story-name { font-size: 11px; color: var(--text-secondary); max-width: 60px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.story-viewer-overlay {
+  position: fixed; inset: 0; z-index: 1000; background: #000;
+  display: flex; align-items: center; justify-content: center;
+}
+.story-viewer-media { max-width: 100%; max-height: 100%; object-fit: contain; }
+.story-progress { position: absolute; top: 0; left: 0; right: 0; display: flex; gap: 4px; padding: 10px; }
+.story-progress-seg { flex: 1; height: 3px; background: rgba(255,255,255,0.35); border-radius: 2px; overflow: hidden; }
+.story-progress-fill { height: 100%; background: #fff; width: 0; }
+.story-progress-fill.active { animation: storyFill 5s linear forwards; }
+.story-progress-fill.done { width: 100%; }
+@keyframes storyFill { from { width: 0; } to { width: 100%; } }
+.story-viewer-head { position: absolute; top: 24px; left: 14px; right: 14px; display: flex; align-items: center; gap: 10px; color: #fff; z-index: 2; }
+.story-viewer-head .avatar { width: 34px; height: 34px; }
+.story-caption { position: absolute; bottom: 40px; left: 0; right: 0; text-align: center; color: #fff; padding: 0 20px; font-size: 15px; text-shadow: 0 1px 4px rgba(0,0,0,.6); }
+.story-close { position: absolute; top: 24px; right: 16px; background: none; border: none; color: #fff; font-size: 26px; cursor: pointer; z-index: 3; }
+.story-nav { position: absolute; top: 0; bottom: 0; width: 35%; z-index: 1; cursor: pointer; }
+.story-nav.left { left: 0; }
+.story-nav.right { right: 0; }
+.story-add-fab { background: none; border: none; cursor: pointer; }
+
+/* ── Код-пароль ────────────────────────────────────────────────── */
+.passcode-overlay {
+  position: fixed; inset: 0; z-index: 2000; background: var(--bg-primary);
+  display: flex; align-items: center; justify-content: center;
+}
+.passcode-box { display: flex; flex-direction: column; align-items: center; gap: 18px; }
+.passcode-icon { font-size: 40px; }
+.passcode-title { font-size: 17px; color: var(--text-primary); }
+.passcode-dots { display: flex; gap: 16px; }
+.passcode-dots.shake { animation: pcShake .4s; }
+@keyframes pcShake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-8px)} 75%{transform:translateX(8px)} }
+.passcode-dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--text-secondary); }
+.passcode-dot.filled { background: var(--accent); border-color: var(--accent); }
+.passcode-pad { display: grid; grid-template-columns: repeat(3, 72px); gap: 14px; margin-top: 10px; }
+.passcode-key {
+  width: 72px; height: 72px; border-radius: 50%; border: 1px solid var(--border);
+  background: var(--bg-secondary); color: var(--text-primary); font-size: 26px; cursor: pointer;
+}
+.passcode-key:active { background: var(--bg-hover); }
+.passcode-del { border: none; background: none; font-size: 22px; }

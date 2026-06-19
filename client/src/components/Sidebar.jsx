@@ -3,6 +3,7 @@ import { API_URL } from '../api.js';
 import { getAvatarColor } from '../avatarColor.js';
 import ProfilePage from './ProfilePage.jsx';
 import ChatItem from './ChatItem.jsx';
+import StoriesBar from './Stories.jsx';
 
 const STATUS_LABELS = { online: 'В сети', away: 'Отошёл', dnd: 'Не беспокоить', offline: 'Не в сети' };
 
@@ -73,6 +74,7 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
   }
   const [search, setSearch] = useState('');
   const [users, setUsers] = useState([]);
+  const [msgResults, setMsgResults] = useState([]);
   const [showGroup, setShowGroup] = useState(false);
   const [groupName, setGroupName] = useState('');
   const [groupMembers, setGroupMembers] = useState([]);
@@ -128,6 +130,23 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
     return () => ctrl.abort();
   }, [tab, search, token]);
 
+  // Глобальный поиск по сообщениям всех чатов (вкладка «Чаты»)
+  useEffect(() => {
+    if (tab !== 'chats' || !search.trim()) { setMsgResults([]); return; }
+    const ctrl = new AbortController();
+    const t = setTimeout(() => {
+      fetch(`${API_URL}/search?q=${encodeURIComponent(search)}`, {
+        headers: { Authorization: `Bearer ${token}` }, signal: ctrl.signal
+      }).then(r => r.json()).then(setMsgResults).catch(() => {});
+    }, 300);
+    return () => { clearTimeout(t); ctrl.abort(); };
+  }, [tab, search, token]);
+
+  function openMessageResult(r) {
+    const chat = chats.find(c => c.id === r.chatId);
+    if (chat) { onSelectChat(chat); setSearch(''); }
+  }
+
   async function openPrivateChat(userId) {
     const res = await fetch(`${API_URL}/chats`, {
       method: 'POST',
@@ -136,6 +155,28 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
     });
     const chat = await res.json();
     onNewChat(chat);
+    setTab('chats'); setSearch('');
+  }
+
+  async function openSecretChat(userId) {
+    const res = await fetch(`${API_URL}/chats`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ type: 'secret', members: [userId] })
+    });
+    const chat = await res.json();
+    onNewChat(chat);
+    setTab('chats'); setSearch('');
+  }
+
+  async function openSaved() {
+    const res = await fetch(`${API_URL}/chats`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ type: 'saved' })
+    });
+    const chat = await res.json();
+    onNewChat({ ...chat, displayName: 'Избранное' });
     setTab('chats'); setSearch('');
   }
 
@@ -173,6 +214,11 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
     <div className="sidebar">
       <div className="sidebar-header">
         <span className="sidebar-title">Nexora</span>
+        <button className="icon-btn" onClick={openSaved} title="Избранное">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>
+          </svg>
+        </button>
         <button className="icon-btn" onClick={() => setShowGroup(true)} title="Создать группу">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
@@ -228,6 +274,7 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
         <ProfilePage user={currentUser} token={token} onUpdate={onProfileUpdate} onLogout={onLogout} />
       ) : tab === 'chats' ? (
         <div className="chat-list">
+          {!search.trim() && activeFolder === 'all' && <StoriesBar currentUser={currentUser} token={token} />}
           {filteredChats.length === 0 && (
             <div className="empty-state">
               <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -264,6 +311,20 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
               />
             );
           })}
+          {search.trim() && msgResults.length > 0 && (
+            <div className="search-messages-section">
+              <div className="search-section-title">Сообщения ({msgResults.length})</div>
+              {msgResults.map(r => (
+                <div key={r.id} className="search-msg-item" onClick={() => openMessageResult(r)}>
+                  <div className="search-msg-chat">{r.chatName || 'Чат'}</div>
+                  <div className="search-msg-text">
+                    <span className="search-msg-sender">{r.senderName}: </span>{r.text}
+                  </div>
+                  <div className="search-msg-date">{formatTime(r.createdAt)}</div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       ) : (
         <div className="user-list">
@@ -276,16 +337,21 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
             </div>
           )}
           {users.map(u => (
-            <div key={u.id} className="user-item" onClick={() => openPrivateChat(u.id)}>
-              <div className="avatar sm" style={!u.avatar ? { background: getAvatarColor(u.username) } : undefined}>
+            <div key={u.id} className="user-item">
+              <div className="avatar sm" style={!u.avatar ? { background: getAvatarColor(u.username) } : undefined} onClick={() => openPrivateChat(u.id)}>
                 {u.avatar ? <img src={u.avatar} alt={u.displayName || u.username} /> : getInitials(u.displayName || u.username)}
                 <StatusDot status={userStatuses.get(u.id) || 'online'} online={onlineUsers.has(u.id)} />
               </div>
-              <div className="user-info">
+              <div className="user-info" onClick={() => openPrivateChat(u.id)} style={{ flex: 1 }}>
                 <div className="user-name">{u.displayName || u.username}</div>
                 <div className="user-handle">@{u.handle || u.username}</div>
                 {u.bio && <div className="user-bio">{u.bio}</div>}
               </div>
+              <button className="icon-btn" title="Секретный чат (E2E)" onClick={() => openSecretChat(u.id)} style={{ flex: 'none' }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                </svg>
+              </button>
             </div>
           ))}
         </div>

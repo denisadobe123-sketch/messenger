@@ -4,6 +4,13 @@ client/node_modules/
 client/dist/
 server/uploads/
 server/db.json
+server/db.json.migrated
+server/messenger.db
+server/messenger.db-shm
+server/messenger.db-wal
+server/_test_data/
+server/_test_cold/
+server/_test*/
 .env
 dist-electron/
 dist-electron2/

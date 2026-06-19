@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { API_URL } from '../api.js';
 import { getTheme, toggleTheme } from '../theme.js';
 import { getAvatarColor } from '../avatarColor.js';
+import { hasPasscode, setPasscode, removePasscode } from '../passcode.js';
 
 const STATUS_LABELS = { online: '🟢 В сети', away: '🟡 Отошёл', dnd: '🔴 Не беспокоить' };
 
@@ -169,6 +170,10 @@ export default function ProfilePage({ user, token, onUpdate, onLogout }) {
 
         <div className="profile-divider" />
 
+        <SecuritySettings token={token} />
+
+        <div className="profile-divider" />
+
         {blockedUsers.length > 0 && (
           <>
             <h3 style={{ fontSize: 15, margin: '20px 0 14px' }}>🚫 Заблокированные</h3>
@@ -195,6 +200,85 @@ export default function ProfilePage({ user, token, onUpdate, onLogout }) {
         </button>
 
       </div>
+    </div>
+  );
+}
+
+function SecuritySettings({ token }) {
+  const [pcOn, setPcOn] = useState(hasPasscode());
+  const [twoFa, setTwoFa] = useState({ enabled: false, hint: null });
+  const [show2faForm, setShow2faForm] = useState(false);
+  const [pw, setPw] = useState(''); const [hint, setHint] = useState(''); const [curPw, setCurPw] = useState('');
+  const [note, setNote] = useState('');
+
+  useEffect(() => {
+    fetch(`${API_URL}/auth/2fa`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(d => setTwoFa(d)).catch(() => {});
+  }, [token]);
+
+  async function togglePasscode() {
+    if (pcOn) { removePasscode(); setPcOn(false); setNote('Код-пароль отключён'); return; }
+    const pin = prompt('Придумай 4-значный код-пароль:');
+    if (!pin || !/^\d{4}$/.test(pin)) { alert('Нужно ровно 4 цифры'); return; }
+    const confirm2 = prompt('Повтори код-пароль:');
+    if (pin !== confirm2) { alert('Коды не совпадают'); return; }
+    await setPasscode(pin); setPcOn(true); setNote('Код-пароль установлен');
+  }
+
+  async function save2fa() {
+    const res = await fetch(`${API_URL}/auth/2fa`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ password: pw, hint, currentPassword: curPw })
+    });
+    const d = await res.json();
+    if (!res.ok) { alert(d.error); return; }
+    setTwoFa({ enabled: d.enabled, hint: hint || null });
+    setShow2faForm(false); setPw(''); setHint(''); setCurPw('');
+    setNote(d.enabled ? 'Облачный пароль включён' : 'Облачный пароль отключён');
+  }
+
+  async function disable2fa() {
+    const cur = prompt('Введи текущий облачный пароль для отключения:');
+    if (cur === null) return;
+    const res = await fetch(`${API_URL}/auth/2fa`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ password: null, currentPassword: cur })
+    });
+    const d = await res.json();
+    if (!res.ok) { alert(d.error); return; }
+    setTwoFa({ enabled: false, hint: null }); setNote('Облачный пароль отключён');
+  }
+
+  return (
+    <div>
+      <h3 style={{ fontSize: 15, margin: '20px 0 14px' }}>🔐 Безопасность</h3>
+
+      <div className="profile-section">
+        <label>Код-пароль на вход</label>
+        <button className="btn btn-secondary" style={{ width: '100%' }} onClick={togglePasscode}>
+          {pcOn ? '🔓 Отключить код-пароль' : '🔒 Установить код-пароль'}
+        </button>
+      </div>
+
+      <div className="profile-section">
+        <label>Двухэтапная проверка (облачный пароль)</label>
+        {twoFa.enabled ? (
+          <button className="btn btn-secondary" style={{ width: '100%' }} onClick={disable2fa}>✅ Включена — отключить</button>
+        ) : !show2faForm ? (
+          <button className="btn btn-secondary" style={{ width: '100%' }} onClick={() => setShow2faForm(true)}>Включить облачный пароль</button>
+        ) : (
+          <div>
+            <input className="modal-input" type="password" placeholder="Облачный пароль" value={pw} onChange={e => setPw(e.target.value)} />
+            <input className="modal-input" placeholder="Подсказка (необязательно)" value={hint} onChange={e => setHint(e.target.value)} />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShow2faForm(false)}>Отмена</button>
+              <button className="btn btn-primary" style={{ flex: 1 }} onClick={save2fa}>Сохранить</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {note && <div className="success-msg">{note}</div>}
     </div>
   );
 }
