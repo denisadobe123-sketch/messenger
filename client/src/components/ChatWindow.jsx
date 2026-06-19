@@ -79,6 +79,8 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
 
   const bottomRef = useRef(null);
   const fileRef = useRef(null);
+  const imageRef = useRef(null);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
   const typingTimeout = useRef(null);
   const socket = getSocket();
 
@@ -408,14 +410,21 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   }
 
   // ── Voice recording ─────────────────────────────────────────────────────
+  function getAudioMimeType() {
+    const types = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4'];
+    for (const t of types) { if (MediaRecorder.isTypeSupported(t)) return t; }
+    return '';
+  }
+
   async function startRecording() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       recordStreamRef.current = stream;
-      const recorder = new MediaRecorder(stream);
+      const mimeType = getAudioMimeType();
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       audioChunksRef.current = [];
-      recorder.ondataavailable = e => audioChunksRef.current.push(e.data);
-      recorder.start();
+      recorder.ondataavailable = e => { if (e.data?.size > 0) audioChunksRef.current.push(e.data); };
+      recorder.start(100);
       mediaRecorderRef.current = recorder;
       setRecording(true); setRecordTime(0);
       recordIntervalRef.current = setInterval(() => setRecordTime(t => t + 1), 1000);
@@ -442,9 +451,11 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
       clearInterval(recordIntervalRef.current);
       setRecording(false); setRecordTime(0);
 
-      const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+      const mimeType = audioChunksRef.current[0]?.type || 'audio/webm';
+      const ext = mimeType.includes('mp4') ? 'm4a' : mimeType.includes('ogg') ? 'ogg' : 'webm';
+      const blob = new Blob(audioChunksRef.current, { type: mimeType });
       const form = new FormData();
-      form.append('file', blob, `voice_${Date.now()}.webm`);
+      form.append('file', blob, `voice_${Date.now()}.${ext}`);
 
       setUploading(true);
       try {
@@ -724,12 +735,27 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
         </div>
       ) : (
         <div className="chat-input-area">
-          <input type="file" ref={fileRef} style={{ display: 'none' }} onChange={e => { const f = e.target.files?.[0]; if (f) setFileToSend(f); e.target.value = ''; }} />
-          <button className="attach-btn" onClick={() => fileRef.current?.click()}>
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
-            </svg>
-          </button>
+          <input ref={imageRef} type="file" accept="image/*,video/*" style={{ display: 'none' }}
+            onChange={e => { const f = e.target.files?.[0]; if (f) setFileToSend(f); e.target.value = ''; }} />
+          <input ref={fileRef} type="file" accept="*/*" style={{ display: 'none' }}
+            onChange={e => { const f = e.target.files?.[0]; if (f) setFileToSend(f); e.target.value = ''; }} />
+          <div style={{ position: 'relative' }}>
+            <button className="attach-btn" onClick={() => setShowAttachMenu(p => !p)}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+              </svg>
+            </button>
+            {showAttachMenu && (
+              <div className="attach-menu">
+                <button className="attach-menu-item" onClick={() => { setShowAttachMenu(false); imageRef.current?.click(); }}>
+                  <span className="attach-menu-icon">🖼</span> Фото / Видео
+                </button>
+                <button className="attach-menu-item" onClick={() => { setShowAttachMenu(false); fileRef.current?.click(); }}>
+                  <span className="attach-menu-icon">📎</span> Файл
+                </button>
+              </div>
+            )}
+          </div>
           <div style={{ position: 'relative' }}>
             <button
               className="attach-btn"

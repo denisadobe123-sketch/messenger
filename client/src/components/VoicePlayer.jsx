@@ -22,7 +22,7 @@ export default function VoicePlayer({ url, duration }) {
     const audio = audioRef.current;
     if (!audio) return;
     if (playing) { audio.pause(); setPlaying(false); }
-    else { audio.play(); setPlaying(true); }
+    else { audio.play().then(() => setPlaying(true)).catch(() => {}); }
   }
 
   const playedBars = Math.floor(progress * BAR_COUNT);
