@@ -1736,6 +1736,12 @@ body {
   flex-shrink: 0;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
+  /* Force GPU layer so border-radius clips video correctly on Android/iOS */
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+  /* Mask clip — most reliable cross-platform circular clip for video */
+  -webkit-mask-image: -webkit-radial-gradient(circle, white 100%, black 100%);
+  mask-image: radial-gradient(circle, white 100%, black 100%);
 }
 .videonote-player-video {
   width: 100%;

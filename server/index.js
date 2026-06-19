@@ -168,17 +168,23 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*', methods: ['GET', 'POST'] } });
 
+// Trust Railway/Heroku proxy — makes req.protocol return 'https' correctly
+app.set('trust proxy', 1);
+
 const CLIENT_DIST = path.join(__dirname, '..', 'client', 'dist');
 const isProd = fs.existsSync(path.join(CLIENT_DIST, 'index.html'));
 
-app.use(cors());
+app.use(cors({ origin: '*', methods: ['GET','POST','PUT','DELETE','OPTIONS'] }));
 app.use(express.json());
 app.use((req, res, next) => {
   res.set('Cache-Control', 'no-store,no-cache,must-revalidate,proxy-revalidate');
   res.set('Pragma', 'no-cache'); res.set('Expires', '0');
   next();
 });
-app.use('/uploads', express.static(UPLOADS_DIR));
+app.use('/uploads', (req, res, next) => {
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+}, express.static(UPLOADS_DIR));
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOADS_DIR),
@@ -207,7 +213,11 @@ function authMiddleware(req, res, next) {
 }
 
 function getBaseUrl(req) {
-  return process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+  if (process.env.BASE_URL) return process.env.BASE_URL;
+  // X-Forwarded-Proto is set by Railway/Render/Heroku reverse proxies
+  const proto = (req.headers['x-forwarded-proto'] || '').split(',')[0].trim() || req.protocol;
+  const host  = req.headers['x-forwarded-host'] || req.get('host');
+  return `${proto}://${host}`;
 }
 
 function safeUser(u, includeEmail = false) {
@@ -399,7 +409,17 @@ app.post('/profile/avatar', authMiddleware, upload.single('avatar'), (req, res) 
   const db = DB;
   const user = db.users.find(u => u.id === req.user.id);
   if (!user) return res.status(404).json({ error: 'Не найден' });
-  user.avatar = `${getBaseUrl(req)}/uploads/${req.file.filename}`;
+  // Store avatar as base64 data URL — survives Railway redeploys (no ephemeral disk dependency)
+  try {
+    const buf = fs.readFileSync(req.file.path);
+    const mime = req.file.mimetype || 'image/jpeg';
+    user.avatar = `data:${mime};base64,${buf.toString('base64')}`;
+    // Clean up temp file after encoding
+    try { fs.unlinkSync(req.file.path); } catch {}
+  } catch {
+    // Fallback to URL if base64 fails
+    user.avatar = `${getBaseUrl(req)}/uploads/${req.file.filename}`;
+  }
   saveDB();
   io.emit('user_profile_updated', safeUser(user));
   res.json(safeUser(user, true));
@@ -629,12 +649,9 @@ app.post('/messages/queued', authMiddleware, async (req, res) => {
 // ── Upload ────────────────────────────────────────────────────────────────────
 app.post('/upload', authMiddleware, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
-  res.json({
-    url: `${getBaseUrl(req)}/uploads/${req.file.filename}`,
-    name: req.file.originalname,
-    size: req.file.size,
-    mimetype: req.file.mimetype
-  });
+  const url = `${getBaseUrl(req)}/uploads/${req.file.filename}`;
+  console.log(`[upload] ${req.file.originalname} → ${url}`);
+  res.json({ url, name: req.file.originalname, size: req.file.size, mimetype: req.file.mimetype });
 });
 
 app.use((err, req, res, next) => {

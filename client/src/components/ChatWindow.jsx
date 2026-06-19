@@ -161,13 +161,17 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     };
   }, [socket, chat?.id]);
 
-  // Close attach/burn menus on outside tap
+  // Close burn menu on outside tap (attach menu closes via onChange of inputs)
+  const burnMenuRef = useRef(null);
   useEffect(() => {
-    if (!showAttachMenu && !showBurnMenu) return;
-    const close = () => { setShowAttachMenu(false); setShowBurnMenu(false); };
-    document.addEventListener('pointerdown', close, true);
-    return () => document.removeEventListener('pointerdown', close, true);
-  }, [showAttachMenu, showBurnMenu]);
+    if (!showBurnMenu) return;
+    const close = (e) => {
+      if (burnMenuRef.current?.contains(e.target)) return;
+      setShowBurnMenu(false);
+    };
+    document.addEventListener('pointerdown', close);
+    return () => document.removeEventListener('pointerdown', close);
+  }, [showBurnMenu]);
 
   // Load draft for this chat
   useEffect(() => {
@@ -752,12 +756,23 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
       ) : (
         <div className="chat-input-area">
           {/* Native label — works on iOS Safari without JS gesture chain */}
+          {/* Inputs must exist in DOM always so label htmlFor association works */}
           <input id="chat-img-input" type="file" accept="image/*,video/*"
-            style={{ display: 'none' }} ref={imageRef}
-            onChange={e => { const f = e.target.files?.[0]; if (f) setFileToSend(f); e.target.value = ''; }} />
+            style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }}
+            onChange={e => {
+              const f = e.target.files?.[0];
+              if (f) setFileToSend(f);
+              e.target.value = '';
+              setShowAttachMenu(false);
+            }} />
           <input id="chat-file-input" type="file"
-            style={{ display: 'none' }} ref={fileRef}
-            onChange={e => { const f = e.target.files?.[0]; if (f) setFileToSend(f); e.target.value = ''; }} />
+            style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }}
+            onChange={e => {
+              const f = e.target.files?.[0];
+              if (f) setFileToSend(f);
+              e.target.value = '';
+              setShowAttachMenu(false);
+            }} />
           <div style={{ position: 'relative' }}>
             <button className="attach-btn" onClick={() => setShowAttachMenu(p => !p)}>
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -765,7 +780,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
               </svg>
             </button>
             {showAttachMenu && (
-              <div className="attach-menu" onClick={() => setShowAttachMenu(false)}>
+              <div className="attach-menu">
                 <label htmlFor="chat-img-input" className="attach-menu-item">
                   <span className="attach-menu-icon">🖼</span> Фото / Видео
                 </label>
@@ -783,7 +798,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
               style={{ color: burnAfter ? '#ff6b6b' : 'var(--text-secondary)', fontSize: 18 }}
             >🔥</button>
             {showBurnMenu && (
-              <div className="msg-context-menu" style={{ bottom: 44, left: 0, top: 'auto', minWidth: 160 }}>
+              <div ref={burnMenuRef} className="msg-context-menu" style={{ bottom: 44, left: 0, top: 'auto', minWidth: 160 }}>
                 {[
                   { label: 'Выкл', val: null },
                   { label: '5 секунд', val: 5 },
