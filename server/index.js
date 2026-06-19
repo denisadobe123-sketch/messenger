@@ -404,23 +404,33 @@ app.put('/profile', authMiddleware, (req, res) => {
   res.json(safeUser(user, true));
 });
 
+// Serve avatar from DB — works even after Railway redeploy wipes disk
+app.get('/avatar/:userId', (req, res) => {
+  const user = DB.users.find(u => u.id === req.params.userId);
+  if (!user?.avatarData) return res.status(404).send('Not found');
+  const buf = Buffer.from(user.avatarData.data, 'base64');
+  res.set('Content-Type', user.avatarData.mime || 'image/jpeg');
+  res.set('Cache-Control', 'public,max-age=86400');
+  res.send(buf);
+});
+
 app.post('/profile/avatar', authMiddleware, upload.single('avatar'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
   const db = DB;
   const user = db.users.find(u => u.id === req.user.id);
   if (!user) return res.status(404).json({ error: 'Не найден' });
-  // Store avatar as base64 data URL — survives Railway redeploys (no ephemeral disk dependency)
   try {
     const buf = fs.readFileSync(req.file.path);
-    const mime = req.file.mimetype || 'image/jpeg';
-    user.avatar = `data:${mime};base64,${buf.toString('base64')}`;
-    // Clean up temp file after encoding
+    // Store raw binary in DB, serve via /avatar/:id endpoint
+    user.avatarData = { data: buf.toString('base64'), mime: req.file.mimetype || 'image/jpeg' };
+    user.avatar = `${getBaseUrl(req)}/avatar/${user.id}`;
     try { fs.unlinkSync(req.file.path); } catch {}
-  } catch {
-    // Fallback to URL if base64 fails
-    user.avatar = `${getBaseUrl(req)}/uploads/${req.file.filename}`;
+  } catch (e) {
+    console.error('Avatar store error:', e.message);
+    return res.status(500).json({ error: 'Ошибка сохранения аватара' });
   }
   saveDB();
+  // Broadcast lightweight update (URL only, not base64)
   io.emit('user_profile_updated', safeUser(user));
   res.json(safeUser(user, true));
 });
