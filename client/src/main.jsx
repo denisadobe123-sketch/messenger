@@ -4,3 +4,6 @@ import App from './App.jsx';
 import './App.css';
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+
+// Сообщаем странице, что приложение успешно отрисовалось (сброс флага самолечения)
+try { window.__appMounted && window.__appMounted(); } catch {}

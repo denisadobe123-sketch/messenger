@@ -15,7 +15,19 @@ registerRoute(
 );
 
 self.skipWaiting();
-self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
+
+// ── Kill-switch: при активации новой версии сносим устаревшие кэши и
+// перезагружаем открытые вкладки, чтобы телефон не залипал на белом экране
+// со старым index.html, ссылающимся на уже несуществующие бандлы.
+self.addEventListener('activate', e => e.waitUntil((async () => {
+  await self.clients.claim();
+  // Сносим кэш навигаций (старый index.html, ссылавшийся на исчезнувшие бандлы).
+  // Старые workbox-precache ревизии чистит cleanupOutdatedCaches() выше.
+  await caches.delete('html-cache');
+  // Перезагружаем уже открытые окна один раз — подтянется свежий HTML и JS.
+  const wins = await self.clients.matchAll({ type: 'window' });
+  for (const c of wins) { try { c.navigate(c.url); } catch {} }
+})()));
 
 // ── Push Notifications ────────────────────────────────────────────────────────
 self.addEventListener('push', e => {

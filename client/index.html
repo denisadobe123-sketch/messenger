@@ -20,6 +20,33 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Самолечение белого экрана: если бандл не загрузился (404 после деплоя),
+         один раз чистим кэш + SW и перезагружаемся. Флаг в sessionStorage от цикла. -->
+    <script>
+      (function () {
+        function selfHeal(why) {
+          if (sessionStorage.getItem('healed')) return;
+          sessionStorage.setItem('healed', '1');
+          Promise.resolve()
+            .then(function () { return 'caches' in window ? caches.keys().then(function (ks) { return Promise.all(ks.map(function (k) { return caches.delete(k); })); }) : null; })
+            .then(function () { return navigator.serviceWorker ? navigator.serviceWorker.getRegistrations().then(function (rs) { return Promise.all(rs.map(function (r) { return r.unregister(); })); }) : null; })
+            .finally(function () { location.reload(true); });
+        }
+        // Ошибка загрузки скрипта/чанка
+        window.addEventListener('error', function (e) {
+          if (e && e.target && e.target.tagName === 'SCRIPT') selfHeal('script-error');
+        }, true);
+        // Если за 8 секунд React так и не отрисовал содержимое — лечимся
+        window.addEventListener('load', function () {
+          setTimeout(function () {
+            var root = document.getElementById('root');
+            if (root && root.childElementCount === 0) selfHeal('empty-root');
+          }, 8000);
+        });
+        // Успешный рендер — сбрасываем флаг, чтобы лечение работало и в будущем
+        window.__appMounted = function () { sessionStorage.removeItem('healed'); };
+      })();
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
