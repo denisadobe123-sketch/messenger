@@ -14,6 +14,7 @@ const webpush = require('web-push');
 const EMAILJS_SERVICE_ID  = process.env.EMAILJS_SERVICE_ID  || 'service_9db449v';
 const EMAILJS_TEMPLATE_ID = process.env.EMAILJS_TEMPLATE_ID || 'template_gpsu9he';
 const EMAILJS_PUBLIC_KEY  = process.env.EMAILJS_PUBLIC_KEY  || 'L0A284UuWxQ8rmxcf';
+const EMAILJS_PRIVATE_KEY = process.env.EMAILJS_PRIVATE_KEY || 'YUu6bkjO674C1R0hamXiS';
 
 async function sendOtpEmail(toEmail, code) {
   if (!toEmail) return false;
@@ -25,6 +26,7 @@ async function sendOtpEmail(toEmail, code) {
         service_id: EMAILJS_SERVICE_ID,
         template_id: EMAILJS_TEMPLATE_ID,
         user_id: EMAILJS_PUBLIC_KEY,
+        accessToken: EMAILJS_PRIVATE_KEY,
         template_params: {
           email: toEmail,
           passcode: code,
