@@ -95,6 +95,10 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   const typingTimeout = useRef(null);
   const socket = getSocket();
 
+  // Тип чата / собеседник — нужны раньше эффектов (иначе TDZ в их зависимостях)
+  const isSecret = chat?.type === 'secret';
+  const otherId = (chat?.type === 'private' || isSecret) ? chat?.members?.find(id => id !== currentUser.id) : null;
+
   useEffect(() => {
     if (!chat) return;
     setMessages([]); setText(''); setFileToSend(null); setTypingUsers(new Map());
@@ -625,8 +629,6 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     setUploading(false);
   }
 
-  const isSecret = chat?.type === 'secret';
-  const otherId = (chat?.type === 'private' || isSecret) ? chat.members?.find(id => id !== currentUser.id) : null;
   const isOnline = otherId ? onlineUsers.has(otherId) : false;
   const otherStatus = otherId ? (userStatuses?.get(otherId) || (isOnline ? 'online' : 'offline')) : 'online';
   const lastSeenIso = otherId ? (userLastSeen?.get(otherId) || chat?.otherUserLastSeen) : null;

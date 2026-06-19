@@ -206,7 +206,8 @@ export default function App() {
   async function loadChats(t) {
     try {
       const res = await fetch(`${API_URL}/chats`, { headers: { Authorization: `Bearer ${t}` } });
-      setChats(await res.json());
+      const data = await res.json();
+      setChats(Array.isArray(data) ? data : []);
     } catch {}
   }
 

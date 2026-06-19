@@ -126,7 +126,7 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
     const ctrl = new AbortController();
     fetch(`${API_URL}/users?q=${encodeURIComponent(search)}`, {
       headers: { Authorization: `Bearer ${token}` }, signal: ctrl.signal
-    }).then(r => r.json()).then(setUsers).catch(() => {});
+    }).then(r => r.json()).then(d => setUsers(Array.isArray(d) ? d : [])).catch(() => {});
     return () => ctrl.abort();
   }, [tab, search, token]);
 
@@ -137,7 +137,7 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
     const t = setTimeout(() => {
       fetch(`${API_URL}/search?q=${encodeURIComponent(search)}`, {
         headers: { Authorization: `Bearer ${token}` }, signal: ctrl.signal
-      }).then(r => r.json()).then(setMsgResults).catch(() => {});
+      }).then(r => r.json()).then(d => setMsgResults(Array.isArray(d) ? d : [])).catch(() => {});
     }, 300);
     return () => { clearTimeout(t); ctrl.abort(); };
   }, [tab, search, token]);
