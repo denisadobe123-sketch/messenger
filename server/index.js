@@ -10,31 +10,29 @@ const fs = require('fs');
 const os = require('os');
 const webpush = require('web-push');
 
-// Email OTP via Resend HTTP API
-const RESEND_API_KEY = process.env.RESEND_API_KEY || null;
-console.log(RESEND_API_KEY ? '✅ Resend email enabled' : '⚠️ RESEND_API_KEY not set');
+// Email OTP via EmailJS REST API
+const EMAILJS_SERVICE_ID  = process.env.EMAILJS_SERVICE_ID  || 'service_9db449v';
+const EMAILJS_TEMPLATE_ID = process.env.EMAILJS_TEMPLATE_ID || 'template_gpsu9he';
+const EMAILJS_PUBLIC_KEY  = process.env.EMAILJS_PUBLIC_KEY  || 'L0A284UuWxQ8rmxcf';
 
 async function sendOtpEmail(toEmail, code) {
-  if (!RESEND_API_KEY || !toEmail) return false;
+  if (!toEmail) return false;
   try {
-    const res = await fetch('https://api.resend.com/emails', {
+    const res = await fetch('https://api.emailjs.com/api/v1.0/email/send', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${RESEND_API_KEY}` },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from: 'Nexora <onboarding@resend.dev>',
-        to: toEmail,
-        subject: `${code} — код подтверждения Nexora`,
-        html: `
-          <div style="font-family:sans-serif;max-width:400px;margin:40px auto;padding:32px;background:#17212b;border-radius:16px;color:#fff">
-            <h2 style="margin:0 0 8px;color:#00e5c0">Nexora</h2>
-            <p style="color:#8899aa;margin:0 0 24px">Код подтверждения</p>
-            <div style="font-size:36px;font-weight:800;letter-spacing:8px;color:#fff;text-align:center;padding:20px;background:#0e1621;border-radius:12px">${code}</div>
-            <p style="color:#8899aa;font-size:13px;margin:20px 0 0;text-align:center">Код действителен 10 минут</p>
-          </div>
-        `
+        service_id: EMAILJS_SERVICE_ID,
+        template_id: EMAILJS_TEMPLATE_ID,
+        user_id: EMAILJS_PUBLIC_KEY,
+        template_params: {
+          email: toEmail,
+          passcode: code,
+          time: '10 минут'
+        }
       })
     });
-    if (!res.ok) { const e = await res.text(); console.error('Resend error:', e); return false; }
+    if (!res.ok) { const e = await res.text(); console.error('EmailJS error:', e); return false; }
     return true;
   } catch (e) { console.error('Email error:', e.message); return false; }
 }
@@ -289,7 +287,7 @@ app.post('/auth/send-otp', async (req, res) => {
   res.json({ otpToken });
 
   sendOtpEmail(email.trim(), code).then(sent => {
-    console.log(`[OTP] ${email} → ${code} (email ${sent ? 'sent' : 'failed'}) mailer=${!!mailer} GMAIL_USER=${GMAIL_USER || 'NOT SET'}`);
+    console.log(`[OTP] ${email} → ${code} (email ${sent ? 'sent' : 'failed'})`);
   });
 });
 
