@@ -19,7 +19,10 @@ if (GMAIL_USER && GMAIL_PASS) {
     const nodemailer = require('nodemailer');
     mailer = nodemailer.createTransport({
       service: 'gmail',
-      auth: { user: GMAIL_USER, pass: GMAIL_PASS }
+      auth: { user: GMAIL_USER, pass: GMAIL_PASS },
+      connectionTimeout: 5000,
+      greetingTimeout: 5000,
+      socketTimeout: 8000
     });
     console.log('✅ Gmail email enabled');
   } catch (e) { console.warn('nodemailer error:', e.message); }
@@ -292,14 +295,11 @@ app.post('/auth/send-otp', async (req, res) => {
   cleanExpiredOTPs();
   otpStore.set(otpToken, { email: email.trim().toLowerCase(), code, expiresAt: now + 10 * 60 * 1000, attempts: 0 });
 
-  const emailSent = await sendOtpEmail(email.trim(), code);
-  console.log(`[OTP] ${email} → ${code} (email ${emailSent ? 'sent' : 'failed'})`);
-
-  if (!emailSent && GMAIL_USER) {
-    return res.status(500).json({ error: 'Не удалось отправить письмо. Проверь email.' });
-  }
-
   res.json({ otpToken });
+
+  sendOtpEmail(email.trim(), code).then(sent => {
+    console.log(`[OTP] ${email} → ${code} (email ${sent ? 'sent' : 'failed'})`);
+  });
 });
 
 // Step 2: verify OTP → login or auto-register
