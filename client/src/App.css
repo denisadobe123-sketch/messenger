@@ -2035,3 +2035,23 @@ body {
 }
 .wallpaper-swatch.active { border-color: var(--accent); }
 .wallpaper-check { color: #fff; font-size: 18px; text-shadow: 0 1px 3px rgba(0,0,0,.5); }
+
+/* ── Действия в профиле чата ───────────────────────────────────── */
+.chat-actions { display: flex; flex-direction: column; gap: 2px; margin: 8px 0; }
+.chat-action-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 10px;
+  background: none; border: none; cursor: pointer; color: var(--text-primary);
+  font-size: 14px; text-align: left; border-radius: 10px;
+}
+.chat-action-row:hover { background: var(--bg-hover); }
+.chat-action-row span { font-size: 18px; width: 22px; text-align: center; }
+.chat-action-row.danger { color: var(--danger); }
+.chat-action-burn { padding: 10px; }
+.chat-action-burn-label { display: flex; align-items: center; gap: 12px; font-size: 14px; margin-bottom: 8px; }
+.chat-action-burn-label span { font-size: 18px; width: 22px; text-align: center; }
+.chat-action-burn-opts { display: flex; gap: 6px; flex-wrap: wrap; padding-left: 34px; }
+.burn-opt {
+  padding: 5px 11px; border-radius: 14px; border: 1px solid var(--border);
+  background: transparent; color: var(--text-secondary); font-size: 12px; cursor: pointer;
+}
+.burn-opt.active { background: var(--accent); color: #fff; border-color: var(--accent); }

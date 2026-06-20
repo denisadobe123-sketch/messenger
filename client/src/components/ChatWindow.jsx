@@ -67,6 +67,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [showHeaderMenu, setShowHeaderMenu] = useState(false);
   const [showGroupInfo, setShowGroupInfo] = useState(false);
+  const [showPrivateInfo, setShowPrivateInfo] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [burnAfter, setBurnAfter] = useState(null);
@@ -91,6 +92,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   const bottomRef = useRef(null);
   const fileRef = useRef(null);
   const inputRef = useRef(null);
+  const sendPressRef = useRef(null);
   const [showFormatBar, setShowFormatBar] = useState(false);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
   const typingTimeout = useRef(null);
@@ -108,7 +110,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     setPinnedIds([]); setPinnedIndex(0); setDecrypted({});
     setShowMedia(false); setShowScheduled(false);
     setSelectMode(false); setSelectedIds(new Set());
-    setShowHeaderMenu(false); setShowGroupInfo(false);
+    setShowHeaderMenu(false); setShowGroupInfo(false); setShowPrivateInfo(false);
 
     fetch(`${API_URL}/messages/${chat.id}/pinned`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json()).then(list => setPinnedIds(Array.isArray(list) ? list.map(m => m.id) : [])).catch(() => {});
@@ -223,6 +225,16 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     }, 500);
     return () => clearTimeout(timer);
   }, [text, chat?.id]);
+
+  // Панель форматирования всплывает при выделении текста в поле ввода (как в ТГ)
+  useEffect(() => {
+    function onSel() {
+      const el = inputRef.current;
+      setShowFormatBar(!!el && document.activeElement === el && el.selectionStart !== el.selectionEnd);
+    }
+    document.addEventListener('selectionchange', onSel);
+    return () => document.removeEventListener('selectionchange', onSel);
+  }, []);
 
   // Состояние группового звонка в этом чате
   useEffect(() => {
@@ -428,6 +440,18 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     setShowScheduleModal(false);
   }
   function handleForward(msg) { setForwardingMsg(msg); }
+  function openInfo() { if (chat.type === 'group') setShowGroupInfo(true); else setShowPrivateInfo(true); }
+  function closeInfo() { setShowGroupInfo(false); setShowPrivateInfo(false); }
+  const chatActions = {
+    isBlocked, burnAfter, setBurnAfter,
+    onSearch: () => { closeInfo(); setShowSearch(true); },
+    onMedia: () => { closeInfo(); setShowMedia(true); },
+    onScheduled: () => { closeInfo(); loadScheduled(); setShowScheduled(true); },
+    onSelect: () => { closeInfo(); toggleSelectMode(); },
+    onClear: () => { closeInfo(); handleClearHistory(); },
+    onBlock: () => { closeInfo(); handleToggleBlock(); },
+    onDelete: () => { closeInfo(); handleDeleteChat(); },
+  };
 
   function sendForward(targetChatId) {
     if (!socket || !forwardingMsg) return;
@@ -696,8 +720,8 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
         </button>
         <div
           className={`avatar ${chat.type === 'group' ? 'group' : ''}`}
-          style={{ width: 38, height: 38, fontSize: 15, cursor: chat.type === 'group' ? 'pointer' : 'default', ...(!chat.otherUserAvatar ? { background: undefined } : {}) }}
-          onClick={() => chat.type === 'group' && setShowGroupInfo(true)}
+          style={{ width: 38, height: 38, fontSize: 15, cursor: 'pointer', ...(!chat.otherUserAvatar ? { background: undefined } : {}) }}
+          onClick={openInfo}
         >
           {chat.otherUserAvatar
             ? <img src={chat.otherUserAvatar} alt={chat.displayName} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
@@ -705,11 +729,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
           }
           {chat.type === 'private' && <span className={`status-dot ${isOnline ? otherStatus : 'offline'}`} />}
         </div>
-        <div
-          className="chat-header-info"
-          style={{ cursor: chat.type === 'group' ? 'pointer' : 'default' }}
-          onClick={() => chat.type === 'group' && setShowGroupInfo(true)}
-        >
+        <div className="chat-header-info" style={{ cursor: 'pointer' }} onClick={openInfo}>
           <div className="chat-header-name">{isSecret && '🔒 '}{chat.displayName || chat.name}</div>
           {chat.type === 'private' && chat.otherUserHandle && (
             <div className="chat-header-handle">@{chat.otherUserHandle}</div>
@@ -744,39 +764,9 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
             </button>
           </>
         )}
-        <button className="icon-btn" title="Поиск" onClick={() => setShowSearch(s => !s)}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-          </svg>
+        <button className="icon-btn" title="Профиль чата" onClick={openInfo}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
         </button>
-        <button className={`icon-btn ${selectMode ? 'active-icon' : ''}`} title="Выбрать сообщения" onClick={toggleSelectMode}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
-          </svg>
-        </button>
-        <div className="msg-menu-wrap" onMouseLeave={() => setShowHeaderMenu(false)}>
-          <button className="icon-btn" title="Меню" onClick={() => setShowHeaderMenu(p => !p)}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>
-          </button>
-          {showHeaderMenu && (
-            <div className="msg-context-menu" style={{ right: 0, top: 36 }}>
-              {chat.type === 'group' && (
-                <button className="msg-context-item" onClick={() => { setShowGroupInfo(true); setShowHeaderMenu(false); }}>ℹ️ Инфо о группе</button>
-              )}
-              <button className="msg-context-item" onClick={() => { setShowMedia(true); setShowHeaderMenu(false); }}>🖼 Общие медиа</button>
-              <button className="msg-context-item" onClick={() => { loadScheduled(); setShowScheduled(true); setShowHeaderMenu(false); }}>⏰ Запланированные</button>
-              <button className="msg-context-item" onClick={handleClearHistory}>🧹 Очистить историю</button>
-              {chat.type === 'private' && (
-                <button className="msg-context-item" onClick={handleToggleBlock}>
-                  {isBlocked ? '✅ Разблокировать' : '🚫 Заблокировать'}
-                </button>
-              )}
-              <button className="msg-context-item danger" onClick={handleDeleteChat}>
-                {chat.type === 'group' ? '🗑 Удалить группу' : '🗑 Удалить чат'}
-              </button>
-            </div>
-          )}
-        </div>
       </div>
 
       {selectMode && (
@@ -966,56 +956,25 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
               </div>
             )}
           </div>
-          <div style={{ position: 'relative' }}>
-            <button
-              className="attach-btn"
-              onClick={() => setShowBurnMenu(p => !p)}
-              title="Самоуничтожение"
-              style={{ color: burnAfter ? '#ff6b6b' : 'var(--text-secondary)', fontSize: 18 }}
-            >🔥</button>
-            {showBurnMenu && (
-              <div ref={burnMenuRef} className="msg-context-menu" style={{ bottom: 44, left: 0, top: 'auto', minWidth: 160 }}>
-                {[
-                  { label: 'Выкл', val: null },
-                  { label: '5 секунд', val: 5 },
-                  { label: '1 минута', val: 60 },
-                  { label: '1 час', val: 3600 },
-                  { label: '24 часа', val: 86400 },
-                ].map(o => (
-                  <button key={String(o.val)} className={`msg-context-item ${burnAfter === o.val ? 'active' : ''}`}
-                    onClick={() => { setBurnAfter(o.val); setShowBurnMenu(false); }}>
-                    {burnAfter === o.val ? '✓ ' : ''}{o.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          <div style={{ position: 'relative', display: 'flex' }}>
-            <button className="attach-btn" onClick={() => setShowFormatBar(p => !p)} title="Форматирование"
-              style={{ fontWeight: 700, fontStyle: 'italic', color: showFormatBar ? 'var(--accent)' : 'var(--text-secondary)' }}>A</button>
+          <div style={{ position: 'relative', flex: 1, display: 'flex' }}>
             {showFormatBar && (
               <div className="format-bar">
-                <button onClick={() => wrapSelection('**', '**')} title="Жирный (Ctrl+B)"><b>Ж</b></button>
-                <button onClick={() => wrapSelection('*', '*')} title="Курсив (Ctrl+I)"><i>К</i></button>
-                <button onClick={() => wrapSelection('__', '__')} title="Подчёркнутый"><u>П</u></button>
-                <button onClick={() => wrapSelection('~~', '~~')} title="Зачёркнутый"><s>З</s></button>
-                <button onClick={() => wrapSelection('||', '||')} title="Спойлер">▢</button>
-                <button onClick={() => wrapSelection('`', '`')} title="Моноширинный">{'</>'}</button>
+                <button onMouseDown={e => e.preventDefault()} onClick={() => wrapSelection('**', '**')} title="Жирный (Ctrl+B)"><b>Ж</b></button>
+                <button onMouseDown={e => e.preventDefault()} onClick={() => wrapSelection('*', '*')} title="Курсив (Ctrl+I)"><i>К</i></button>
+                <button onMouseDown={e => e.preventDefault()} onClick={() => wrapSelection('__', '__')} title="Подчёркнутый"><u>П</u></button>
+                <button onMouseDown={e => e.preventDefault()} onClick={() => wrapSelection('~~', '~~')} title="Зачёркнутый"><s>З</s></button>
+                <button onMouseDown={e => e.preventDefault()} onClick={() => wrapSelection('||', '||')} title="Спойлер">▢</button>
+                <button onMouseDown={e => e.preventDefault()} onClick={() => wrapSelection('`', '`')} title="Код">{'</>'}</button>
               </div>
             )}
+            <textarea
+              ref={inputRef}
+              className="msg-input" placeholder="Написать сообщение..." value={text}
+              onChange={handleTextChange} onKeyDown={onKeyDown} rows={1}
+              onBlur={() => setTimeout(() => setShowFormatBar(false), 200)}
+              onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'; }}
+            />
           </div>
-          <button className="attach-btn" onClick={openSchedule} title="Отложенная отправка"
-            style={{ color: 'var(--text-secondary)' }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15 14"/>
-            </svg>
-          </button>
-          <textarea
-            ref={inputRef}
-            className="msg-input" placeholder="Написать сообщение..." value={text}
-            onChange={handleTextChange} onKeyDown={onKeyDown} rows={1}
-            onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'; }}
-          />
           <div className="sticker-picker-wrap">
             <button className="attach-btn emoji-toggle-btn" onClick={() => setShowEmojiPicker(p => !p)} title="Эмодзи и стикеры">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1052,7 +1011,13 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
               </button>
             </>
           ) : (
-            <button className="send-btn" onClick={send} disabled={uploading}>
+            <button
+              className="send-btn" onClick={send} disabled={uploading}
+              title="Отправить (удерж. — запланировать)"
+              onContextMenu={e => { e.preventDefault(); openSchedule(); }}
+              onTouchStart={() => { sendPressRef.current = setTimeout(() => { sendPressRef.current = 'fired'; openSchedule(); }, 500); }}
+              onTouchEnd={e => { if (sendPressRef.current === 'fired') { e.preventDefault(); sendPressRef.current = null; } else { clearTimeout(sendPressRef.current); } }}
+            >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
               </svg>
@@ -1150,8 +1115,71 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
           onAddMembers={handleAddMembers}
           onRemoveMember={handleRemoveMember}
           onLeave={handleLeaveGroup}
+          actions={chatActions}
         />
       )}
+
+      {showPrivateInfo && chat.type !== 'group' && (
+        <PrivateInfo
+          chat={chat} isOnline={isOnline} statusLabel={statusLabel} isSecret={isSecret}
+          onClose={() => setShowPrivateInfo(false)}
+          actions={chatActions}
+        />
+      )}
+    </div>
+  );
+}
+
+// Общий список действий чата (медиа, поиск, автоудаление и т.п.)
+function ChatActions({ chat, isBlocked, burnAfter, setBurnAfter, onSearch, onMedia, onScheduled, onSelect, onClear, onBlock, onDelete }) {
+  const BURN = [{ l: 'Выкл', v: null }, { l: '5 сек', v: 5 }, { l: '1 мин', v: 60 }, { l: '1 час', v: 3600 }, { l: '24 ч', v: 86400 }];
+  return (
+    <div className="chat-actions">
+      <button className="chat-action-row" onClick={onSearch}><span>🔍</span> Поиск по сообщениям</button>
+      <button className="chat-action-row" onClick={onMedia}><span>🖼</span> Общие медиа</button>
+      <button className="chat-action-row" onClick={onScheduled}><span>⏰</span> Запланированные</button>
+      <button className="chat-action-row" onClick={onSelect}><span>✅</span> Выбрать сообщения</button>
+
+      <div className="chat-action-burn">
+        <div className="chat-action-burn-label"><span>🔥</span> Автоудаление</div>
+        <div className="chat-action-burn-opts">
+          {BURN.map(o => (
+            <button key={String(o.v)} className={`burn-opt ${burnAfter === o.v ? 'active' : ''}`}
+              onClick={() => setBurnAfter(o.v)}>{o.l}</button>
+          ))}
+        </div>
+      </div>
+
+      <button className="chat-action-row" onClick={onClear}><span>🧹</span> Очистить историю</button>
+      {chat.type === 'private' && (
+        <button className="chat-action-row" onClick={onBlock}><span>{isBlocked ? '✅' : '🚫'}</span> {isBlocked ? 'Разблокировать' : 'Заблокировать'}</button>
+      )}
+      <button className="chat-action-row danger" onClick={onDelete}>
+        <span>🗑</span> {chat.type === 'group' ? 'Удалить группу' : 'Удалить чат'}
+      </button>
+    </div>
+  );
+}
+
+function PrivateInfo({ chat, isOnline, statusLabel, isSecret, onClose, actions }) {
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal">
+        <div className="group-info-head">
+          <div className="avatar lg" style={{ margin: '0 auto' }}>
+            {chat.otherUserAvatar
+              ? <img src={chat.otherUserAvatar} alt="" />
+              : (chat.displayName || '?')[0].toUpperCase()}
+          </div>
+          <h3 style={{ marginBottom: 2 }}>{isSecret && '🔒 '}{chat.displayName}</h3>
+          {chat.otherUserHandle && <div className="group-info-sub">@{chat.otherUserHandle}</div>}
+          <div className="group-info-sub">{statusLabel}</div>
+        </div>
+        <ChatActions {...actions} chat={chat} />
+        <div className="modal-actions" style={{ marginTop: 12 }}>
+          <button className="btn btn-secondary" onClick={onClose}>Закрыть</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1246,7 +1274,7 @@ function MediaTabs({ mediaMsgs, fileMsgs, linkMsgs, onImageClick }) {
   );
 }
 
-function GroupInfo({ chat, currentUser, token, onlineUsers, onClose, onRename, onAddMembers, onRemoveMember, onLeave }) {
+function GroupInfo({ chat, currentUser, token, onlineUsers, onClose, onRename, onAddMembers, onRemoveMember, onLeave, actions }) {
   const [allUsers, setAllUsers] = useState([]);
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(chat.name || '');
@@ -1314,6 +1342,7 @@ function GroupInfo({ chat, currentUser, token, onlineUsers, onClose, onRename, o
                 );
               })}
             </div>
+            {actions && <ChatActions {...actions} chat={chat} />}
             <button className="btn btn-danger" style={{ width: '100%', marginTop: 12 }} onClick={onLeave}>Выйти из группы</button>
           </>
         ) : (
