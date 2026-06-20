@@ -693,6 +693,20 @@ app.use((err, req, res, next) => {
 // userId -> Set<socketId>  (поддержка нескольких устройств одного пользователя)
 const onlineUsers = new Map();
 
+// Активные групповые звонки: chatId -> Map<userId, username>
+const groupCalls = new Map();
+function leaveGroupCall(uid, chatId) {
+  const set = groupCalls.get(chatId);
+  if (!set || !set.has(uid)) return;
+  set.delete(uid);
+  for (const id of set.keys()) emitToUser(id, 'group_call_user_left', { chatId, userId: uid });
+  if (set.size === 0) groupCalls.delete(chatId);
+  io.to(chatId).emit('group_call_state', { chatId, active: set.size > 0, count: set.size, participants: [...set.keys()] });
+}
+function leaveAllGroupCalls(uid) {
+  for (const chatId of [...groupCalls.keys()]) leaveGroupCall(uid, chatId);
+}
+
 function addOnline(userId, socketId) {
   if (!onlineUsers.has(userId)) onlineUsers.set(userId, new Set());
   onlineUsers.get(userId).add(socketId);
@@ -968,6 +982,33 @@ io.on('connection', (socket) => {
     socket.emit('queue_flushed', { ok: true });
   });
 
+  // ── Групповые звонки (WebRTC mesh) ──────────────────────────────────────────
+  socket.on('group_call_join', ({ chatId }) => {
+    if (!Chats.isMember(chatId, userId)) return;
+    let set = groupCalls.get(chatId);
+    if (!set) { set = new Map(); groupCalls.set(chatId, set); } // userId -> username
+    const existing = [...set.keys()].filter(id => id !== userId);
+    const sender = Users.getById(userId);
+    set.set(userId, sender?.displayName || sender?.username || 'Участник');
+    // Присоединившемуся — список тех, кто уже в звонке (он инициирует offer к ним)
+    socket.emit('group_call_participants', { chatId, participants: existing.map(id => ({ userId: id, username: set.get(id) })) });
+    // Уже присутствующим — что зашёл новый (они ждут от него offer)
+    for (const id of existing) emitToUser(id, 'group_call_user_joined', { chatId, userId, username: set.get(userId) });
+    // Всем в чате — индикатор активного звонка
+    io.to(chatId).emit('group_call_state', { chatId, active: set.size > 0, count: set.size, participants: [...set.keys()] });
+  });
+
+  socket.on('group_call_signal', ({ chatId, toUserId, signal }) => {
+    emitToUser(toUserId, 'group_call_signal', { chatId, fromUserId: userId, signal });
+  });
+
+  socket.on('group_call_leave', ({ chatId }) => leaveGroupCall(userId, chatId));
+
+  socket.on('group_call_query', ({ chatId }) => {
+    const set = groupCalls.get(chatId);
+    socket.emit('group_call_state', { chatId, active: !!(set && set.size), count: set ? set.size : 0, participants: set ? [...set.keys()] : [] });
+  });
+
   socket.on('call_invite', ({ chatId, toUserId, callType }) => {
     if (isOnline(toUserId)) emitToUser(toUserId, 'call_incoming', { chatId, fromUserId: userId, fromUsername: socket.user.username, callType });
     else socket.emit('call_unavailable', { toUserId });
@@ -978,6 +1019,7 @@ io.on('connection', (socket) => {
   socket.on('call_end', ({ toUserId }) => emitToUser(toUserId, 'call_ended', { fromUserId: userId }));
 
   socket.on('disconnect', () => {
+    leaveAllGroupCalls(userId);
     const wentOffline = removeOnline(userId, socket.id);
     if (wentOffline) {
       const lastSeen = new Date().toISOString();

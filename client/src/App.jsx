@@ -3,6 +3,7 @@ import Auth from './components/Auth.jsx';
 import Sidebar from './components/Sidebar.jsx';
 import ChatWindow from './components/ChatWindow.jsx';
 import CallModal from './components/CallModal.jsx';
+import GroupCallModal from './components/GroupCallModal.jsx';
 import Toast from './components/Toast.jsx';
 import { connectSocket, disconnectSocket, getSocket } from './socket.js';
 import { API_URL } from './api.js';
@@ -54,6 +55,7 @@ export default function App() {
   const [userLastSeen, setUserLastSeen] = useState(new Map());
   const [userProfiles, setUserProfiles] = useState(new Map());
   const [activeCall, setActiveCall] = useState(null);
+  const [groupCall, setGroupCall] = useState(null);
   const [toasts, setToasts] = useState([]);
   const [mutedChats, setMutedChats] = useState(() => {
     try { return new Set(JSON.parse(localStorage.getItem('mutedChats') || '[]')); } catch { return new Set(); }
@@ -293,6 +295,7 @@ export default function App() {
         userLastSeen={userLastSeen}
         token={token}
         onStartCall={handleStartCall}
+        onStartGroupCall={(chat, callType) => setGroupCall({ chat, callType })}
         onBack={() => setSelectedChat(null)}
       />
       {activeCall && (
@@ -301,6 +304,15 @@ export default function App() {
           socket={getSocket()}
           currentUserId={user.id}
           onEnd={() => setActiveCall(null)}
+        />
+      )}
+      {groupCall && (
+        <GroupCallModal
+          chat={groupCall.chat}
+          callType={groupCall.callType}
+          currentUser={user}
+          socket={getSocket()}
+          onEnd={() => setGroupCall(null)}
         />
       )}
       <Toast

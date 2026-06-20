@@ -36,7 +36,7 @@ function groupByDay(messages) {
   return groups;
 }
 
-export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuses, userLastSeen, token, onStartCall, onBack, chats }) {
+export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuses, userLastSeen, token, onStartCall, onStartGroupCall, onBack, chats }) {
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const [fileToSend, setFileToSend] = useState(null);
@@ -54,6 +54,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   const [scheduleValue, setScheduleValue] = useState('');
   const [showPollModal, setShowPollModal] = useState(false);
   const [decrypted, setDecrypted] = useState({});
+  const [groupCallActive, setGroupCallActive] = useState(null); // { count } | null
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -222,6 +223,18 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     }, 500);
     return () => clearTimeout(timer);
   }, [text, chat?.id]);
+
+  // Состояние группового звонка в этом чате
+  useEffect(() => {
+    if (!socket || !chat || chat.type !== 'group') { setGroupCallActive(null); return; }
+    socket.emit('group_call_query', { chatId: chat.id });
+    function onState({ chatId, active, count }) {
+      if (chatId !== chat.id) return;
+      setGroupCallActive(active ? { count } : null);
+    }
+    socket.on('group_call_state', onState);
+    return () => socket.off('group_call_state', onState);
+  }, [socket, chat?.id]);
 
   // Расшифровка сообщений секретного чата (E2E)
   useEffect(() => {
@@ -717,6 +730,20 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
             </button>
           </>
         )}
+        {chat.type === 'group' && (
+          <>
+            <button className="icon-btn" title="Групповой аудиозвонок" onClick={() => onStartGroupCall?.(chat, 'audio')}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.362 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/>
+              </svg>
+            </button>
+            <button className="icon-btn" title="Групповой видеозвонок" onClick={() => onStartGroupCall?.(chat, 'video')}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+              </svg>
+            </button>
+          </>
+        )}
         <button className="icon-btn" title="Поиск" onClick={() => setShowSearch(s => !s)}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
@@ -771,6 +798,14 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
             </>
           )}
           <button className="search-close-btn" onClick={() => { setShowSearch(false); setSearchQuery(''); }}>✕</button>
+        </div>
+      )}
+
+      {groupCallActive && (
+        <div className="group-call-banner">
+          <span className="group-call-banner-pulse" />
+          <span className="group-call-banner-text">Идёт звонок · {groupCallActive.count} уч.</span>
+          <button className="group-call-banner-join" onClick={() => onStartGroupCall?.(chat, 'audio')}>Присоединиться</button>
         </div>
       )}
 
