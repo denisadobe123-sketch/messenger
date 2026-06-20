@@ -595,7 +595,8 @@ app.get('/chats', authMiddleware, (req, res) => {
     }
     return { ...chat, displayName, lastMessage, unread, otherUserAvatar: otherUser?.avatar || null,
       otherUserId: otherUser?.id || null, otherUserStatus: otherUser?.status || null, otherUserLastSeen: otherUser?.lastSeen || null,
-      otherUserHandle: otherUser?.handle || otherUser?.username || null };
+      otherUserHandle: otherUser?.handle || otherUser?.username || null,
+      otherUserBio: otherUser?.bio || null };
   });
   res.json(enriched.sort((a, b) => {
     const aT = a.lastMessage ? new Date(a.lastMessage.createdAt) : new Date(a.createdAt);

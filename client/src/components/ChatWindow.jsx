@@ -8,6 +8,7 @@ import { API_URL } from '../api.js';
 import { tap } from '../native.js';
 import { enqueue } from '../offlineQueue.js';
 import { encryptFor, decryptFrom } from '../e2e.js';
+import { getAvatarColor } from '../avatarColor.js';
 
 const DRAFTS_KEY = 'chat_drafts';
 
@@ -25,11 +26,23 @@ function formatLastSeen(iso) {
   return `был(а) ${d.toLocaleDateString('ru', { day: '2-digit', month: '2-digit' })}`;
 }
 
+function getDayLabel(iso) {
+  const d = new Date(iso);
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const msgStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  if (msgStart === todayStart) return 'Сегодня';
+  if (msgStart === todayStart - 86400000) return 'Вчера';
+  const opts = { day: 'numeric', month: 'long' };
+  if (d.getFullYear() !== now.getFullYear()) opts.year = 'numeric';
+  return d.toLocaleDateString('ru', opts);
+}
+
 function groupByDay(messages) {
   const groups = [];
   let lastDay = null;
   for (const msg of messages) {
-    const day = new Date(msg.createdAt).toLocaleDateString('ru', { day: 'numeric', month: 'long', year: 'numeric' });
+    const day = getDayLabel(msg.createdAt);
     if (day !== lastDay) { groups.push({ type: 'day', label: day }); lastDay = day; }
     groups.push({ type: 'msg', msg });
   }
@@ -115,6 +128,15 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     fetch(`${API_URL}/messages/${chat.id}/pinned`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json()).then(list => setPinnedIds(Array.isArray(list) ? list.map(m => m.id) : [])).catch(() => {});
 
+    if ((chat.type === 'private' || chat.type === 'secret') && otherId) {
+      fetch(`${API_URL}/blocked`, { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => r.json())
+        .then(list => setIsBlocked(Array.isArray(list) && list.some(u => u.id === otherId)))
+        .catch(() => {});
+    } else {
+      setIsBlocked(false);
+    }
+
     const unreadCount = chat.unread || 0;
     fetch(`${API_URL}/messages/${chat.id}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
@@ -191,7 +213,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     };
   }, [socket, chat?.id]);
 
-  // Close burn menu on outside tap (attach menu closes via onChange of inputs)
+  // Close burn menu on outside tap
   const burnMenuRef = useRef(null);
   useEffect(() => {
     if (!showBurnMenu) return;
@@ -202,6 +224,18 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     document.addEventListener('pointerdown', close);
     return () => document.removeEventListener('pointerdown', close);
   }, [showBurnMenu]);
+
+  // Close attach menu on outside click
+  const attachMenuRef = useRef(null);
+  useEffect(() => {
+    if (!showAttachMenu) return;
+    const close = (e) => {
+      if (attachMenuRef.current?.contains(e.target)) return;
+      setShowAttachMenu(false);
+    };
+    document.addEventListener('pointerdown', close);
+    return () => document.removeEventListener('pointerdown', close);
+  }, [showAttachMenu]);
 
   // Load draft for this chat
   useEffect(() => {
@@ -537,7 +571,6 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   }
   async function handleToggleBlock() {
     setShowHeaderMenu(false);
-    const otherId = chat.members?.find(id => id !== currentUser.id);
     if (!otherId) return;
     const method = isBlocked ? 'DELETE' : 'POST';
     await fetch(`${API_URL}/block/${otherId}`, { method, headers: { Authorization: `Bearer ${token}` } });
@@ -670,7 +703,11 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   const otherStatus = otherId ? (userStatuses?.get(otherId) || (isOnline ? 'online' : 'offline')) : 'online';
   const lastSeenIso = otherId ? (userLastSeen?.get(otherId) || chat?.otherUserLastSeen) : null;
   const statusLabel = chat?.type === 'group'
-    ? `${chat.members?.length || 0} участников`
+    ? (() => {
+        const total = chat.members?.length || 0;
+        const onlineCnt = (chat.members || []).filter(id => onlineUsers.has(id)).length;
+        return onlineCnt > 0 ? `${total} участников, ${onlineCnt} в сети` : `${total} участников`;
+      })()
     : (isOnline ? STATUS_LABELS[otherStatus] : formatLastSeen(lastSeenIso));
 
   if (!chat) {
@@ -859,7 +896,14 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
             )
         )}
         {typingList.length > 0 && (
-          <div className="typing-indicator"><div className="typing-dot" /><div className="typing-dot" /><div className="typing-dot" /></div>
+          <div className="typing-indicator">
+            {chat.type === 'group' && (
+              <span className="typing-name">
+                {typingList.length === 1 ? typingList[0] : `${typingList.length} человека`}
+              </span>
+            )}
+            <div className="typing-dot" /><div className="typing-dot" /><div className="typing-dot" />
+          </div>
         )}
         <div ref={bottomRef} />
       </div>
@@ -928,7 +972,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
         </div>
       ) : (
         <div className="chat-input-area">
-          <div style={{ position: 'relative' }}>
+          <div style={{ position: 'relative' }} ref={attachMenuRef}>
             <button className="attach-btn" onClick={() => setShowAttachMenu(p => !p)}>
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
@@ -1166,14 +1210,15 @@ function PrivateInfo({ chat, isOnline, statusLabel, isSecret, onClose, actions }
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <div className="group-info-head">
-          <div className="avatar lg" style={{ margin: '0 auto' }}>
+          <div className="avatar lg" style={{ margin: '0 auto', ...(!chat.otherUserAvatar ? { background: getAvatarColor(chat.displayName) } : {}) }}>
             {chat.otherUserAvatar
-              ? <img src={chat.otherUserAvatar} alt="" />
+              ? <img src={chat.otherUserAvatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
               : (chat.displayName || '?')[0].toUpperCase()}
           </div>
           <h3 style={{ marginBottom: 2 }}>{isSecret && '🔒 '}{chat.displayName}</h3>
-          {chat.otherUserHandle && <div className="group-info-sub">@{chat.otherUserHandle}</div>}
-          <div className="group-info-sub">{statusLabel}</div>
+          {chat.otherUserHandle && <div className="group-info-sub" style={{ color: 'var(--accent)' }}>@{chat.otherUserHandle}</div>}
+          <div className={`group-info-sub ${isOnline ? 'online' : ''}`} style={isOnline ? { color: 'var(--online)' } : {}}>{statusLabel}</div>
+          {chat.otherUserBio && <div className="group-info-sub" style={{ marginTop: 4, maxWidth: 280, textAlign: 'center' }}>{chat.otherUserBio}</div>}
         </div>
         <ChatActions {...actions} chat={chat} />
         <div className="modal-actions" style={{ marginTop: 12 }}>
