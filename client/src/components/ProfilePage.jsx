@@ -3,6 +3,7 @@ import { API_URL } from '../api.js';
 import { getTheme, toggleTheme } from '../theme.js';
 import { getAvatarColor } from '../avatarColor.js';
 import { hasPasscode, setPasscode, removePasscode } from '../passcode.js';
+import { WALLPAPERS, getWallpaper, setWallpaper } from '../wallpaper.js';
 
 const STATUS_LABELS = { online: '🟢 В сети', away: '🟡 Отошёл', dnd: '🔴 Не беспокоить' };
 
@@ -174,6 +175,14 @@ export default function ProfilePage({ user, token, onUpdate, onLogout }) {
 
         <div className="profile-divider" />
 
+        <PrivacySettings token={token} />
+
+        <div className="profile-divider" />
+
+        <WallpaperPicker />
+
+        <div className="profile-divider" />
+
         {blockedUsers.length > 0 && (
           <>
             <h3 style={{ fontSize: 15, margin: '20px 0 14px' }}>🚫 Заблокированные</h3>
@@ -199,6 +208,61 @@ export default function ProfilePage({ user, token, onUpdate, onLogout }) {
           Выйти из аккаунта
         </button>
 
+      </div>
+    </div>
+  );
+}
+
+function PrivacySettings({ token }) {
+  const [priv, setPriv] = useState({ lastSeen: 'everyone', calls: 'everyone' });
+  const OPTS = [['everyone', 'Все'], ['contacts', 'Контакты'], ['nobody', 'Никто']];
+
+  useEffect(() => {
+    fetch(`${API_URL}/privacy`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(setPriv).catch(() => {});
+  }, [token]);
+
+  function update(field, value) {
+    const next = { ...priv, [field]: value };
+    setPriv(next);
+    fetch(`${API_URL}/privacy`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ [field]: value })
+    }).catch(() => {});
+  }
+
+  return (
+    <div>
+      <h3 style={{ fontSize: 15, margin: '20px 0 14px' }}>🛡 Приватность</h3>
+      <div className="profile-section">
+        <label>Кто видит «был(а) в сети»</label>
+        <select className="status-select" value={priv.lastSeen} onChange={e => update('lastSeen', e.target.value)}>
+          {OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+      </div>
+      <div className="profile-section">
+        <label>Кто может звонить</label>
+        <select className="status-select" value={priv.calls} onChange={e => update('calls', e.target.value)}>
+          {OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+      </div>
+    </div>
+  );
+}
+
+function WallpaperPicker() {
+  const [active, setActive] = useState(getWallpaper());
+  function pick(id) { setWallpaper(id); setActive(id); }
+  return (
+    <div>
+      <h3 style={{ fontSize: 15, margin: '20px 0 14px' }}>🖼 Обои чата</h3>
+      <div className="wallpaper-grid">
+        {WALLPAPERS.map(w => (
+          <button key={w.id} className={`wallpaper-swatch ${active === w.id ? 'active' : ''}`}
+            style={{ background: w.css || 'var(--bg-secondary)' }} onClick={() => pick(w.id)} title={w.name}>
+            {active === w.id && <span className="wallpaper-check">✓</span>}
+          </button>
+        ))}
       </div>
     </div>
   );

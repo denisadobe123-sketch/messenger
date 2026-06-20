@@ -16,6 +16,7 @@ import PasscodeLock from './components/PasscodeLock.jsx';
 import { enqueue, flushQueue, queueSize } from './offlineQueue.js';
 import { hasPasscode, isUnlocked } from './passcode.js';
 import { ensureKeys, clearE2E } from './e2e.js';
+import { applyWallpaper, getWallpaper } from './wallpaper.js';
 
 function playNotificationSound() {
   try {
@@ -86,6 +87,7 @@ export default function App() {
 
   useEffect(() => {
     applyTheme(getTheme());
+    applyWallpaper(getWallpaper());
     initNative();
 
     const onOnline = async () => {
@@ -146,8 +148,12 @@ export default function App() {
       setActiveCall({ status: 'incoming', otherUserId: fromUserId, otherUsername: fromUsername, callType });
     });
 
-    socket.on('call_unavailable', () => {
-      pushToast({ title: 'Недоступен', body: 'Пользователь не в сети', type: 'error' });
+    socket.on('call_unavailable', ({ reason } = {}) => {
+      pushToast({
+        title: 'Недоступен',
+        body: reason === 'privacy' ? 'Пользователь ограничил звонки' : 'Пользователь не в сети',
+        type: 'error'
+      });
       setActiveCall(null);
     });
 

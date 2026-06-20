@@ -395,6 +395,26 @@ app.post('/auth/verify-2fa', async (req, res) => {
   res.json({ token, user: safeUser(u, true) });
 });
 
+// ── Настройки приватности ─────────────────────────────────────────────────────
+const DEFAULT_PRIVACY = { lastSeen: 'everyone', calls: 'everyone' }; // everyone | contacts | nobody
+
+app.get('/privacy', authMiddleware, (req, res) => {
+  const u = Users.getById(req.user.id);
+  res.json({ ...DEFAULT_PRIVACY, ...(u?.privacy || {}) });
+});
+
+app.post('/privacy', authMiddleware, (req, res) => {
+  const u = Users.getById(req.user.id);
+  if (!u) return res.status(404).json({ error: 'Не найден' });
+  const valid = ['everyone', 'contacts', 'nobody'];
+  const cur = { ...DEFAULT_PRIVACY, ...(u.privacy || {}) };
+  const { lastSeen, calls } = req.body;
+  if (valid.includes(lastSeen)) cur.lastSeen = lastSeen;
+  if (valid.includes(calls)) cur.calls = calls;
+  Users.update(req.user.id, { privacy: cur });
+  res.json(cur);
+});
+
 // ── Profile ───────────────────────────────────────────────────────────────────
 app.get('/profile', authMiddleware, (req, res) => {
   const user = Users.getById(req.user.id);
@@ -726,6 +746,17 @@ function emitToUser(userId, event, payload) {
   if (!set) return;
   for (const sid of set) io.to(sid).emit(event, payload);
 }
+// Рассылка статуса с учётом приватности «был в сети»
+function emitPresence(uid, online, lastSeen) {
+  const u = Users.getById(uid);
+  const pol = (u?.privacy?.lastSeen) || 'everyone';
+  const payload = { userId: uid, online };
+  if (!online && pol !== 'nobody') payload.lastSeen = lastSeen;
+  if (pol === 'everyone') io.emit('user_status', payload);
+  else if (pol === 'contacts') for (const cid of contactIds(uid)) emitToUser(cid, 'user_status', payload);
+  // 'nobody' — никому не раскрываем
+}
+
 // Все сокеты пользователя входят в комнату чата (для мгновенной доставки в новый чат)
 function joinUserToChat(userId, chatId) {
   const set = onlineUsers.get(userId);
@@ -743,7 +774,7 @@ io.on('connection', (socket) => {
   const wasOffline = !isOnline(userId);
   addOnline(userId, socket.id);
   Chats.forUser(userId).forEach(c => socket.join(c.id));
-  if (wasOffline) io.emit('user_status', { userId, online: true });
+  if (wasOffline) emitPresence(userId, true, null);
 
   socket.on('send_message', async (data, ack) => {
     const { chatId, text, file, replyTo, voice, sticker, forwardOf, burnAfter, videoNote,
@@ -1010,6 +1041,11 @@ io.on('connection', (socket) => {
   });
 
   socket.on('call_invite', ({ chatId, toUserId, callType }) => {
+    const callee = Users.getById(toUserId);
+    const pol = callee?.privacy?.calls || 'everyone';
+    if (pol === 'nobody' || (pol === 'contacts' && !contactIds(toUserId).includes(userId))) {
+      return socket.emit('call_unavailable', { toUserId, reason: 'privacy' });
+    }
     if (isOnline(toUserId)) emitToUser(toUserId, 'call_incoming', { chatId, fromUserId: userId, fromUsername: socket.user.username, callType });
     else socket.emit('call_unavailable', { toUserId });
   });
@@ -1024,7 +1060,7 @@ io.on('connection', (socket) => {
     if (wentOffline) {
       const lastSeen = new Date().toISOString();
       Users.update(userId, { lastSeen });
-      io.emit('user_status', { userId, online: false, lastSeen });
+      emitPresence(userId, false, lastSeen);
     }
   });
 });
