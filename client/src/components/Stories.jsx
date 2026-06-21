@@ -54,10 +54,8 @@ export default function StoriesBar({ currentUser, token }) {
     <>
       <div className="stories-bar">
         <label className="story-avatar" style={{ cursor: 'pointer', position: 'relative' }}>
-          <div className={`story-ring ${myGroup ? '' : 'add'}`}>
-            {myGroup?.avatar
-              ? <img src={myGroup.avatar} alt="" />
-              : <div className="story-init">{uploading ? '…' : '+'}</div>}
+          <div className="story-ring add">
+            <div className="story-init">{uploading ? '…' : '+'}</div>
           </div>
           <span className="story-name">Моя</span>
           <input type="file" accept="image/*,video/*" disabled={uploading}

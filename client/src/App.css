@@ -2137,3 +2137,89 @@ body {
   background: transparent; color: var(--text-secondary); font-size: 12px; cursor: pointer;
 }
 .burn-opt.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* ══════════════════════════════════════════════════════
+   MOBILE DEFINITIVE — overrides всех конфликтов выше
+   Последние правила побеждают при одинаковой специфичности
+   ══════════════════════════════════════════════════════ */
+@media (max-width: 760px) {
+  /* Слайд-анимация как в Telegram: сайдбар уезжает влево,
+     чат приезжает справа. Вместо display:none — transform. */
+  .sidebar {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 10 !important;
+    width: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    transform: translateX(0) !important;
+    transition: transform 0.3s cubic-bezier(.32,.72,0,1) !important;
+    will-change: transform;
+  }
+  .app-layout.chat-open .sidebar {
+    transform: translateX(-100%) !important;
+    pointer-events: none !important;
+  }
+  .chat-window, .no-chat {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 20 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    transform: translateX(100%) !important;
+    transition: transform 0.3s cubic-bezier(.32,.72,0,1) !important;
+    pointer-events: none !important;
+    will-change: transform;
+  }
+  .app-layout.chat-open .chat-window {
+    transform: translateX(0) !important;
+    pointer-events: auto !important;
+  }
+  .app-layout:not(.chat-open) .no-chat { transform: translateX(100%) !important; }
+
+  /* Шапка — нет видимой границы (прозрачное стекло) */
+  .sidebar-header {
+    background: color-mix(in srgb, var(--bg-secondary) 85%, transparent) !important;
+    border-bottom: 1px solid rgba(255,255,255,0.06) !important;
+  }
+
+  /* Папки/фильтры — горизонтальный скролл без полосы */
+  .folder-tabs {
+    padding: 6px 14px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    gap: 6px;
+  }
+  .folder-tabs::-webkit-scrollbar { display: none; }
+  .folder-tab { white-space: nowrap; padding: 6px 14px; font-size: 13px; border-radius: 20px; }
+
+  /* Профиль — чистый хедер */
+  .profile-page-header {
+    padding: 28px 20px 20px !important;
+    background: linear-gradient(180deg, var(--bg-tertiary) 0%, var(--bg-secondary) 100%);
+    border-bottom: 1px solid var(--border);
+  }
+  .profile-page-header .avatar.lg {
+    width: 84px !important;
+    height: 84px !important;
+    font-size: 30px !important;
+    box-shadow: 0 0 0 3px var(--bg-primary), 0 0 0 5px var(--accent), 0 8px 24px rgba(0,229,192,0.3) !important;
+  }
+  .avatar-upload-btn {
+    margin-top: 10px !important;
+    padding: 9px 20px !important;
+    font-size: 14px !important;
+    border-radius: 12px !important;
+    background: color-mix(in srgb, var(--accent) 12%, transparent) !important;
+    color: var(--accent) !important;
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent) !important;
+    font-weight: 600 !important;
+  }
+
+  /* Истории — чуть крупнее кольцо на телефоне */
+  .story-ring { width: 60px !important; height: 60px !important; }
+  .story-avatar { width: 66px !important; }
+
+  /* Кнопка Back */
+  .back-btn { display: flex !important; }
+}
