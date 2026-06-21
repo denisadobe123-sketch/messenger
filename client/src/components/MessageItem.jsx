@@ -188,7 +188,17 @@ export default function MessageItem({
           <div className="reply-quote-bar" />
           <div className="reply-quote-content">
             <div className="reply-quote-sender">{msg.replyTo.senderName}</div>
-            <div className="reply-quote-text">{msg.replyTo.text}</div>
+            <div className="reply-quote-text">
+              {msg.replyTo.text ||
+               (msg.replyTo.voice ? '🎤 Голосовое' :
+                msg.replyTo.videoNote ? '📹 Видео-кружок' :
+                msg.replyTo.sticker ? msg.replyTo.sticker :
+                msg.replyTo.poll ? '📊 ' + msg.replyTo.poll.question :
+                msg.replyTo.location ? '📍 Геолокация' :
+                msg.replyTo.file?.mimetype?.startsWith('image/') ? '🖼 Фото' :
+                msg.replyTo.file?.mimetype?.startsWith('video/') ? '🎬 Видео' :
+                msg.replyTo.file ? '📎 ' + msg.replyTo.file.name : '')}
+            </div>
           </div>
         </div>
       )}

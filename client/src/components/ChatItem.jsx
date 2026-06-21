@@ -87,7 +87,7 @@ export default function ChatItem({
         <div className="chat-info">
           <div className="chat-name">{isPinned && '📌 '}{chat.displayName}</div>
           <div className="chat-preview">
-            {!getDraft(chat.id) && chat.lastMessage?.senderId === currentUser.id && chat.lastMessage ? 'Вы: ' : ''}
+            {!getDraft(chat.id) && chat.lastMessage?.senderId === currentUser.id && !chat.lastMessage?.system && !chat.lastMessage?.deleted ? 'Вы: ' : ''}
             {previewText(chat.lastMessage, chat.id)}
           </div>
         </div>
