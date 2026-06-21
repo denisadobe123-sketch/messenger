@@ -241,19 +241,6 @@ app.get('/version', (req, res) => {
   res.json({ version: APP_VERSION, apkUrl: APK_DOWNLOAD_URL });
 });
 
-// ── TEMP: full DB wipe (remove after use) ─────────────────────────────────────
-app.get('/admin/wipe/wipe_nexora_2025', (req, res) => {
-  db.exec(`
-    DELETE FROM messages;
-    DELETE FROM message_reads;
-    DELETE FROM chat_members;
-    DELETE FROM chats;
-    DELETE FROM blocked;
-    DELETE FROM stories;
-    DELETE FROM users;
-  `);
-  res.send('✅ База очищена. Можно регаться заново.');
-});
 
 // ── Network info (LAN discovery) ──────────────────────────────────────────────
 function getLocalIPs() {
