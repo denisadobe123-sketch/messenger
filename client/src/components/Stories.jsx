@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { API_URL } from '../api.js';
 import { getSocket } from '../socket.js';
 import { getAvatarColor } from '../avatarColor.js';
@@ -70,9 +71,10 @@ export default function StoriesBar({ currentUser, token }) {
           <StoryRing key={g.userId} group={g} onClick={() => setViewer({ groupIndex: groups.indexOf(g) })} />
         ))}
       </div>
-      {viewer && (
+      {viewer && createPortal(
         <StoryViewer groups={groups} startGroup={viewer.groupIndex} currentUser={currentUser} token={token}
-          onClose={() => { setViewer(null); load(); }} />
+          onClose={() => { setViewer(null); load(); }} />,
+        document.body
       )}
     </>
   );
