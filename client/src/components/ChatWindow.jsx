@@ -92,6 +92,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   const [unreadBelow, setUnreadBelow] = useState(0);
   const messagesWrapRef = useRef(null);
   const [firstUnreadId, setFirstUnreadId] = useState(null);
+  const [loadingMessages, setLoadingMessages] = useState(false);
   const [hasMoreAbove, setHasMoreAbove] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [backSwipeX, setBackSwipeX] = useState(0);
@@ -142,9 +143,11 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
 
     const unreadCount = chat.unread || 0;
     setHasMoreAbove(false);
+    setLoadingMessages(true);
     fetch(`${API_URL}/messages/${chat.id}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
       .then(msgs => {
+        setLoadingMessages(false);
         setMessages(msgs);
         setHasMoreAbove(msgs.length >= 60);
         if (unreadCount > 0) {
@@ -153,7 +156,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
         } else setFirstUnreadId(null);
         setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
       })
-      .catch(() => {});
+      .catch(() => { setLoadingMessages(false); });
 
     if (socket) { socket.emit('join_chat', chat.id); socket.emit('read_messages', { chatId: chat.id }); }
   }, [chat?.id]);
@@ -961,6 +964,14 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
               </Fragment>
             )
         )}
+        {loadingMessages && (
+          <div className="messages-skeleton">
+            {[80, 55, 120, 65, 90, 45, 110, 70].map((w, i) => (
+              <div key={i} className={`skeleton-bubble ${i % 3 === 0 ? 'skeleton-out' : 'skeleton-in'}`} style={{ width: `${w}px` }} />
+            ))}
+          </div>
+        )}
+
         {loadingMore && (
           <div className="load-more-spinner">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">

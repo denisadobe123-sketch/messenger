@@ -196,10 +196,10 @@ export function VideoNotePlayer({ url }) {
         }}
         onEnded={() => { setPlaying(false); setProgress(0); }}
       />
-      {/* progress ring */}
+      {/* progress ring — always visible once started */}
       <svg className="videonote-player-svg" viewBox="0 0 100 100">
-        <circle cx="50" cy="50" r="46" fill="none" stroke="rgba(0,229,192,0.25)" strokeWidth="4" />
-        {playing && (
+        <circle cx="50" cy="50" r="46" fill="none" stroke="rgba(0,229,192,0.2)" strokeWidth="4" />
+        {progress > 0 && (
           <circle
             cx="50" cy="50" r="46"
             fill="none" stroke="var(--accent)" strokeWidth="4" strokeLinecap="round"

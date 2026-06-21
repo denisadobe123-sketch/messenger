@@ -7,6 +7,7 @@ export default function StoriesBar({ currentUser, token }) {
   const [groups, setGroups] = useState([]);
   const [viewer, setViewer] = useState(null); // { groupIndex }
   const [uploading, setUploading] = useState(false);
+  const [uploadErr, setUploadErr] = useState('');
   const fileRef = useRef(null);
 
   function load() {
@@ -39,7 +40,10 @@ export default function StoriesBar({ currentUser, token }) {
         body: JSON.stringify({ mediaUrl: data.url, mediaType })
       });
       load();
-    } catch (err) { alert('Не удалось опубликовать историю'); }
+    } catch {
+      setUploadErr('Не удалось опубликовать историю');
+      setTimeout(() => setUploadErr(''), 3000);
+    }
     setUploading(false);
   }
 
@@ -58,6 +62,7 @@ export default function StoriesBar({ currentUser, token }) {
           <span className="story-name">Моя</span>
         </div>
         <input ref={fileRef} type="file" accept="image/*,video/*" style={{ display: 'none' }} onChange={onPickFile} />
+        {uploadErr && <div className="stories-upload-err">{uploadErr}</div>}
         {myGroup && (
           <StoryRing group={myGroup} onClick={() => setViewer({ groupIndex: groups.indexOf(myGroup) })} />
         )}
@@ -89,6 +94,7 @@ function StoryRing({ group, onClick }) {
 function StoryViewer({ groups, startGroup, currentUser, token, onClose }) {
   const [gi, setGi] = useState(startGroup);
   const [si, setSi] = useState(0);
+  const [confirmDel, setConfirmDel] = useState(false);
   const timerRef = useRef(null);
   const group = groups[gi];
   const story = group?.stories[si];
@@ -118,8 +124,8 @@ function StoryViewer({ groups, startGroup, currentUser, token, onClose }) {
   }
 
   async function del() {
-    if (!confirm('Удалить историю?')) return;
     await fetch(`${API_URL}/stories/${story.id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+    setConfirmDel(false);
     next();
   }
 
@@ -138,7 +144,15 @@ function StoryViewer({ groups, startGroup, currentUser, token, onClose }) {
         <div className="avatar sm">{group.avatar ? <img src={group.avatar} alt="" /> : (group.username || '?')[0].toUpperCase()}</div>
         <span>{group.username}</span>
         {group.isMine && <span style={{ marginLeft: 'auto', fontSize: 13, opacity: 0.8 }}>👁 {story.viewers?.length || 0}</span>}
-        {group.isMine && <button className="icon-btn" style={{ color: '#fff' }} onClick={del} title="Удалить">🗑</button>}
+        {group.isMine && !confirmDel && (
+          <button className="icon-btn" style={{ color: '#fff' }} onClick={() => setConfirmDel(true)} title="Удалить">🗑</button>
+        )}
+        {group.isMine && confirmDel && (
+          <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
+            <button className="story-del-cancel" onClick={() => setConfirmDel(false)}>Отмена</button>
+            <button className="story-del-confirm" onClick={del}>Удалить</button>
+          </div>
+        )}
       </div>
       <button className="story-close" onClick={onClose}>✕</button>
       <div className="story-nav left" onClick={prev} />

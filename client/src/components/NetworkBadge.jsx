@@ -6,16 +6,20 @@ export default function NetworkBadge() {
   const [queued, setQueued] = useState(0);
 
   useEffect(() => {
-    const onOnline  = () => { setIsOnline(true);  updateQueued(); };
-    const onOffline = () => setIsOnline(false);
+    const onOnline  = () => { setIsOnline(true); setQueued(0); };
+    const onOffline = () => { setIsOnline(false); updateQueued(); };
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
-    const timer = setInterval(updateQueued, 2000);
-    updateQueued();
+    // Only poll queue size when offline
+    let timer = null;
+    if (!navigator.onLine) {
+      timer = setInterval(updateQueued, 3000);
+      updateQueued();
+    }
     return () => {
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
-      clearInterval(timer);
+      if (timer) clearInterval(timer);
     };
   }, []);
 

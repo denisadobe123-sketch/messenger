@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { API_URL as API } from '../api.js';
 
 export default function Auth({ onAuth }) {
@@ -83,14 +83,42 @@ export default function Auth({ onAuth }) {
     finally { setLoading(false); }
   }
 
-  function handleCodeChange(val) {
-    const digits = val.replace(/\D/g, '').slice(0, 6);
-    setCode(digits);
-    if (digits.length === 6) {
-      setTimeout(() => {
-        document.getElementById('verify-btn')?.click();
-      }, 100);
-    }
+  const digitRefs = useRef([]);
+
+  function handleDigitChange(idx, val) {
+    const digit = val.replace(/\D/g, '').slice(-1);
+    const arr = (code + '      ').slice(0, 6).split('');
+    arr[idx] = digit;
+    const next = arr.join('').replace(/ /g, '');
+    setCode(next);
+    if (digit && idx < 5) digitRefs.current[idx + 1]?.focus();
+    if (next.length === 6) setTimeout(() => document.getElementById('verify-btn')?.click(), 80);
+  }
+
+  function handleDigitKeyDown(idx, e) {
+    if (e.key === 'Backspace') {
+      if (!code[idx] && idx > 0) {
+        digitRefs.current[idx - 1]?.focus();
+        const arr = code.split('');
+        arr[idx - 1] = '';
+        setCode(arr.join(''));
+      } else {
+        const arr = code.split('');
+        arr[idx] = '';
+        setCode(arr.join(''));
+      }
+    } else if (e.key === 'ArrowLeft' && idx > 0) digitRefs.current[idx - 1]?.focus();
+    else if (e.key === 'ArrowRight' && idx < 5) digitRefs.current[idx + 1]?.focus();
+  }
+
+  function handleDigitPaste(e) {
+    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (!pasted) return;
+    e.preventDefault();
+    setCode(pasted);
+    const focusIdx = Math.min(pasted.length, 5);
+    digitRefs.current[focusIdx]?.focus();
+    if (pasted.length === 6) setTimeout(() => document.getElementById('verify-btn')?.click(), 80);
   }
 
   return (
@@ -137,18 +165,25 @@ export default function Auth({ onAuth }) {
               Мы отправили код на<br />
               <strong>{email}</strong>
             </p>
-            <input
-              className="auth-input otp-input"
-              type="text"
-              inputMode="numeric"
-              placeholder="_ _ _ _ _ _"
-              value={code}
-              onChange={e => handleCodeChange(e.target.value)}
-              autoFocus
-              maxLength={6}
-            />
+            <div className="otp-boxes" onPaste={handleDigitPaste}>
+              {Array.from({ length: 6 }, (_, i) => (
+                <input
+                  key={i}
+                  ref={el => digitRefs.current[i] = el}
+                  className="otp-box"
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={1}
+                  value={code[i] || ''}
+                  autoFocus={i === 0}
+                  onChange={e => handleDigitChange(i, e.target.value)}
+                  onKeyDown={e => handleDigitKeyDown(i, e)}
+                  onFocus={e => e.target.select()}
+                />
+              ))}
+            </div>
             {error && <div className="auth-error">{error}</div>}
-            <button id="verify-btn" className="auth-btn" type="submit" disabled={loading}>
+            <button id="verify-btn" className="auth-btn" type="submit" disabled={loading || code.length < 6}>
               {loading ? 'Проверка...' : 'Подтвердить'}
             </button>
             <div className="auth-resend-wrap">

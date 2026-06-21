@@ -203,6 +203,20 @@ body {
 }
 .auth-desc strong { color: var(--text-primary); }
 .phone-input { font-size: 18px !important; padding: 16px 20px !important; text-align: center; letter-spacing: 1px; }
+.otp-boxes {
+  display: flex; gap: 10px; justify-content: center; margin: 8px 0;
+}
+.otp-box {
+  width: 46px; height: 56px; border-radius: 12px; border: 2px solid var(--border);
+  background: var(--bg-secondary); color: var(--text-primary);
+  font-size: 24px; font-weight: 700; text-align: center;
+  outline: none; transition: border-color 0.15s, box-shadow 0.15s;
+  caret-color: transparent;
+}
+.otp-box:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.otp-box:not(:placeholder-shown) { border-color: var(--accent-deep); }
+
+/* legacy single input, kept for fallback */
 .otp-input {
   font-size: 28px !important; padding: 16px 20px !important;
   text-align: center; letter-spacing: 8px; font-weight: 700;
@@ -985,12 +999,10 @@ body {
 .toast-item {
   display: flex; align-items: center; gap: 10px; background: var(--bg-secondary);
   border: 1px solid var(--border); border-radius: 14px; padding: 12px 14px; width: 300px;
-  box-shadow: 0 12px 32px var(--shadow); cursor: pointer; animation: toastIn 0.25s ease;
+  box-shadow: 0 12px 32px var(--shadow); cursor: pointer;
+  opacity: 0; transform: translateX(20px); transition: opacity 0.25s ease, transform 0.25s ease;
 }
-@keyframes toastIn {
-  from { opacity: 0; transform: translateX(40px); }
-  to   { opacity: 1; transform: translateX(0); }
-}
+.toast-visible { opacity: 1 !important; transform: translateX(0) !important; }
 .toast-content { flex: 1; min-width: 0; }
 .toast-title { font-weight: 700; font-size: 13.5px; }
 .toast-body { font-size: 13px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -1329,6 +1341,23 @@ body {
   overscroll-behavior: contain;            /* без проброса скролла наружу */
   scrollbar-width: thin;
 }
+
+/* ── Message skeleton ────────────────────────────────── */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.messages-skeleton {
+  display: flex; flex-direction: column; gap: 10px; padding: 16px; flex: 1;
+}
+.skeleton-bubble {
+  height: 36px; border-radius: 16px;
+  background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--bg-hover) 50%, var(--bg-secondary) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+.skeleton-in  { align-self: flex-start; margin-left: 8px; }
+.skeleton-out { align-self: flex-end;   margin-right: 8px; }
 
 /* ── Load more spinner ───────────────────────────────── */
 .load-more-spinner {
@@ -1995,6 +2024,10 @@ body {
 .story-viewer-head .avatar { width: 34px; height: 34px; }
 .story-caption { position: absolute; bottom: 40px; left: 0; right: 0; text-align: center; color: #fff; padding: 0 20px; font-size: 15px; text-shadow: 0 1px 4px rgba(0,0,0,.6); }
 .story-close { position: absolute; top: 24px; right: 16px; background: none; border: none; color: #fff; font-size: 26px; cursor: pointer; z-index: 3; }
+.story-del-cancel, .story-del-confirm { border: none; border-radius: 8px; padding: 5px 12px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.story-del-cancel { background: rgba(255,255,255,0.15); color: #fff; }
+.story-del-confirm { background: var(--danger); color: #fff; }
+.stories-upload-err { font-size: 12px; color: var(--danger); text-align: center; padding: 4px 0; }
 .story-nav { position: absolute; top: 0; bottom: 0; width: 35%; z-index: 1; cursor: pointer; }
 .story-nav.left { left: 0; }
 .story-nav.right { right: 0; }
