@@ -638,7 +638,9 @@ app.post('/chats', authMiddleware, (req, res) => {
 app.get('/messages/:chatId', authMiddleware, (req, res) => {
   if (!Chats.isMember(req.params.chatId, req.user.id)) return res.status(403).json({ error: 'Нет доступа' });
   Messages.markChatRead(req.params.chatId, req.user.id);
-  res.json(Messages.forChat(req.params.chatId));
+  const { before, limit } = req.query;
+  const msgs = Messages.forChat(req.params.chatId, { before, limit: Math.min(Number(limit) || 60, 100) });
+  res.json(msgs);
 });
 
 app.get('/messages/:chatId/search', authMiddleware, (req, res) => {

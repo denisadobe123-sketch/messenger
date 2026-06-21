@@ -405,28 +405,45 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
 
 function GroupUserPicker({ token, selected, setSelected }) {
   const [users, setUsers] = useState([]);
+  const [search, setSearch] = useState('');
   useEffect(() => {
     fetch(`${API_URL}/users`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.json()).then(setUsers).catch(() => {});
+      .then(r => r.json()).then(d => setUsers(Array.isArray(d) ? d : [])).catch(() => {});
   }, [token]);
 
   function toggle(id) {
     setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   }
 
+  const filtered = search.trim()
+    ? users.filter(u => (u.displayName || u.username || '').toLowerCase().includes(search.toLowerCase()) || (u.handle || '').toLowerCase().includes(search.toLowerCase()))
+    : users;
+
   return (
-    <div className="modal-members">
-      {users.map(u => (
-        <div key={u.id} className={`user-item ${selected.includes(u.id) ? 'selected' : ''}`} onClick={() => toggle(u.id)}>
-          <div className="avatar sm">{u.username[0].toUpperCase()}</div>
-          <span className="user-name">{u.username}</span>
-          {selected.includes(u.id) && (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ marginLeft: 'auto', color: 'var(--accent)' }}>
-              <path d="M20 6L9 17l-5-5"/>
-            </svg>
-          )}
-        </div>
-      ))}
-    </div>
+    <>
+      <input className="modal-input" placeholder="Найти участников..." value={search} onChange={e => setSearch(e.target.value)} style={{ marginBottom: 6 }} />
+      {selected.length > 0 && <div style={{ fontSize: 12, color: 'var(--accent)', marginBottom: 6 }}>Выбрано: {selected.length}</div>}
+      <div className="modal-members">
+        {filtered.map(u => {
+          const name = u.displayName || u.username || '?';
+          return (
+            <div key={u.id} className={`user-item ${selected.includes(u.id) ? 'selected' : ''}`} onClick={() => toggle(u.id)}>
+              <div className="avatar sm" style={!u.avatar ? { background: getAvatarColor(name) } : undefined}>
+                {u.avatar ? <img src={u.avatar} alt={name} /> : name[0].toUpperCase()}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div className="user-name">{name}</div>
+                {u.handle && <div className="user-handle" style={{ fontSize: 12 }}>@{u.handle}</div>}
+              </div>
+              {selected.includes(u.id) && (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ flexShrink: 0, color: 'var(--accent)' }}>
+                  <path d="M20 6L9 17l-5-5"/>
+                </svg>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </>
   );
 }

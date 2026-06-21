@@ -87,10 +87,13 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   const [showBurnMenu, setShowBurnMenu] = useState(false);
   const [showVideoRecorder, setShowVideoRecorder] = useState(false);
   const [lightboxImg, setLightboxImg] = useState(null);
+  const [sendError, setSendError] = useState('');
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [unreadBelow, setUnreadBelow] = useState(0);
   const messagesWrapRef = useRef(null);
   const [firstUnreadId, setFirstUnreadId] = useState(null);
+  const [hasMoreAbove, setHasMoreAbove] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [backSwipeX, setBackSwipeX] = useState(0);
   const backSwipe = useRef({ x: 0, y: 0, dx: 0, active: false });
   const dragCounter = useRef(0);
@@ -138,10 +141,12 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     }
 
     const unreadCount = chat.unread || 0;
+    setHasMoreAbove(false);
     fetch(`${API_URL}/messages/${chat.id}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
       .then(msgs => {
         setMessages(msgs);
+        setHasMoreAbove(msgs.length >= 60);
         if (unreadCount > 0) {
           const incoming = msgs.filter(m => m.senderId !== currentUser.id && !m.system);
           setFirstUnreadId(incoming[incoming.length - unreadCount]?.id || null);
@@ -160,13 +165,17 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
       if (msg.chatId !== chat?.id) return;
       setMessages(prev => {
         if (prev.find(m => m.id === msg.id)) return prev;
-        // Replace optimistic pending message from offline queue
         const pendingIdx = msg.clientId ? prev.findIndex(m => m.clientId === msg.clientId && m.pending) : -1;
         if (pendingIdx !== -1) return prev.map((m, i) => i === pendingIdx ? { ...msg, pending: false } : m);
         return [...prev, msg];
       });
       socket.emit('read_messages', { chatId: chat.id });
-      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+      // Scroll only if already at bottom or it's own message
+      const el = messagesWrapRef.current;
+      const atBottom = !el || (el.scrollHeight - el.scrollTop - el.clientHeight) < 100;
+      if (atBottom || msg.senderId === currentUser.id) {
+        setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+      }
     }
     function onReaction({ messageId, reactions }) {
       setMessages(prev => prev.map(m => m.id === messageId ? { ...m, reactions } : m));
@@ -309,7 +318,9 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     return () => { alive = false; };
   }, [messages, isSecret, otherId, token]);
 
-  // Track scroll position for "scroll to bottom" button
+  // Track scroll position for "scroll to bottom" button and load-more trigger
+  const loadMoreRef = useRef(loadMore);
+  loadMoreRef.current = loadMore;
   useEffect(() => {
     const el = messagesWrapRef.current;
     if (!el) return;
@@ -317,21 +328,49 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
       const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
       setIsAtBottom(distFromBottom < 80);
       if (distFromBottom < 80) setUnreadBelow(0);
+      if (el.scrollTop < 80) loadMoreRef.current();
     }
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
   }, []);
 
-  // Count unread below when not at bottom
+  // Count unread below when not at bottom (only incoming messages)
+  const prevLenRef = useRef(0);
   useEffect(() => {
-    if (!isAtBottom) {
-      setUnreadBelow(prev => prev + 1);
+    const len = messages.length;
+    if (!isAtBottom && len > prevLenRef.current) {
+      const last = messages[len - 1];
+      if (last && !last.pending && last.senderId !== currentUser.id) {
+        setUnreadBelow(prev => prev + 1);
+      }
     }
-  }, [messages.length]);
+    prevLenRef.current = len;
+  }, [messages.length, isAtBottom]);
 
   function scrollToBottom() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     setUnreadBelow(0);
+  }
+
+  async function loadMore() {
+    if (loadingMore || !hasMoreAbove || !chat) return;
+    const firstId = messages[0]?.id;
+    if (!firstId) return;
+    setLoadingMore(true);
+    const el = messagesWrapRef.current;
+    const prevHeight = el?.scrollHeight || 0;
+    try {
+      const r = await fetch(`${API_URL}/messages/${chat.id}?before=${firstId}`, { headers: { Authorization: `Bearer ${token}` } });
+      const older = await r.json();
+      if (older.length === 0) { setHasMoreAbove(false); return; }
+      setMessages(prev => [...older, ...prev]);
+      setHasMoreAbove(older.length >= 60);
+      // Restore scroll position so view doesn't jump
+      requestAnimationFrame(() => {
+        if (el) el.scrollTop = el.scrollHeight - prevHeight;
+      });
+    } catch {}
+    finally { setLoadingMore(false); }
   }
 
   function handleTextChange(e) {
@@ -381,7 +420,8 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
         fileData = data;
       } catch (e) {
         setUploading(false);
-        alert('Не удалось загрузить файл: ' + (e.message || 'ошибка сети'));
+        setSendError('Не удалось загрузить файл: ' + (e.message || 'ошибка сети'));
+        setTimeout(() => setSendError(''), 4000);
         return;
       }
       setUploading(false);
@@ -395,7 +435,8 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
       socket.emit('send_message', { ...payload, scheduledAt }, () => {});
       setText(''); setFileToSend(null); setReplyingTo(null);
       const when = new Date(scheduledAt).toLocaleString('ru', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-      alert(`⏰ Запланировано на ${when}`);
+      setSendError(`⏰ Запланировано на ${when}`);
+      setTimeout(() => setSendError(''), 3000);
       return;
     }
 
@@ -849,6 +890,10 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
         </div>
       )}
 
+      {sendError && (
+        <div className="send-error-banner">{sendError}</div>
+      )}
+
       {groupCallActive && (
         <div className="group-call-banner">
           <span className="group-call-banner-pulse" />
@@ -916,6 +961,15 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
               </Fragment>
             )
         )}
+        {loadingMore && (
+          <div className="load-more-spinner">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10" strokeOpacity=".3"/>
+              <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur=".8s" repeatCount="indefinite"/></path>
+            </svg>
+          </div>
+        )}
+
         {messages.length === 0 && !typingList.length && (
           <div className="chat-empty-hint">
             {isSecret ? '🔒 Секретный чат — сообщения шифруются на устройстве' : '👋 Начните переписку'}

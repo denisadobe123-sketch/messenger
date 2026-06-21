@@ -364,7 +364,17 @@ body {
 
 /* ── Profile Modal ───────────────────────────────── */
 .profile-avatar-wrap {
-  display: flex; flex-direction: column; align-items: center; gap: 12px; margin-bottom: 20px;
+  position: relative; display: flex; flex-direction: column; align-items: center; gap: 12px; margin-bottom: 20px;
+}
+.profile-avatar-overlay {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity 0.15s;
+}
+.profile-avatar-wrap:hover .profile-avatar-overlay { opacity: 1; }
+.profile-avatar-loading {
+  position: absolute; inset: 0; border-radius: 50%;
+  background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center;
 }
 .avatar-upload-btn {
   background: var(--bg-hover); border: none; color: var(--text-secondary);
@@ -1320,6 +1330,12 @@ body {
   scrollbar-width: thin;
 }
 
+/* ── Load more spinner ───────────────────────────────── */
+.load-more-spinner {
+  display: flex; justify-content: center; padding: 12px 0;
+  color: var(--text-muted);
+}
+
 /* ── Пустой чат ──────────────────────────────────────── */
 .chat-empty-hint {
   align-self: center; margin: auto; padding: 10px 20px;
@@ -2029,6 +2045,12 @@ body {
   position: absolute; bottom: 6px; left: 8px; color: #fff; font-size: 12px;
   background: rgba(0,0,0,0.5); padding: 2px 8px; border-radius: 8px;
 }
+.send-error-banner {
+  padding: 6px 14px; font-size: 13px; text-align: center;
+  background: rgba(255,90,90,0.12); color: var(--danger);
+  border-bottom: 1px solid rgba(255,90,90,0.2);
+}
+
 .group-call-banner {
   display: flex; align-items: center; gap: 10px; padding: 8px 14px;
   background: rgba(0, 200, 120, 0.12); border-bottom: 1px solid var(--border);

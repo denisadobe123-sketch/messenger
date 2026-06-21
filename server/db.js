@@ -304,11 +304,20 @@ const Messages = {
   getById: (id) => rowToMessage(db.prepare('SELECT * FROM messages WHERE id=?').get(id)),
   getByClientId: (clientId) =>
     clientId ? rowToMessage(db.prepare('SELECT * FROM messages WHERE clientId=?').get(clientId)) : null,
-  // Сообщения чата, исключая ещё не отправленные запланированные
-  forChat: (chatId) => {
+  // Сообщения чата с пагинацией (limit последних, или before для подгрузки выше)
+  forChat: (chatId, { before, limit = 60 } = {}) => {
     const reads = readsForChat(chatId);
-    return db.prepare('SELECT * FROM messages WHERE chatId=? AND scheduledAt IS NULL ORDER BY createdAt ASC')
-      .all(chatId).map(r => rowToMessage(r, reads));
+    let rows;
+    if (before) {
+      rows = db.prepare(
+        'SELECT * FROM messages WHERE chatId=? AND scheduledAt IS NULL AND createdAt < (SELECT createdAt FROM messages WHERE id=?) ORDER BY createdAt DESC LIMIT ?'
+      ).all(chatId, before, limit).reverse();
+    } else {
+      rows = db.prepare(
+        'SELECT * FROM messages WHERE chatId=? AND scheduledAt IS NULL ORDER BY createdAt DESC LIMIT ?'
+      ).all(chatId, limit).reverse();
+    }
+    return rows.map(r => rowToMessage(r, reads));
   },
   lastForChat: (chatId) => {
     const r = db.prepare('SELECT * FROM messages WHERE chatId=? AND scheduledAt IS NULL ORDER BY createdAt DESC LIMIT 1').get(chatId);

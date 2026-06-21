@@ -208,7 +208,15 @@ export default function App() {
 
       if (!isActive && msg.senderId !== user.id && !msg.system && !mutedRef.current.has(msg.chatId)) {
         playNotificationSound();
-        const body = msg.sticker || msg.text || (msg.voice ? '🎤 Голосовое' : '📎 Файл');
+        const body = msg.sticker || msg.text
+          || (msg.voice ? '🎤 Голосовое сообщение'
+          : msg.videoNote ? '📹 Видео-кружок'
+          : msg.poll ? '📊 ' + (msg.poll.question || 'Опрос')
+          : msg.location ? '📍 Геолокация'
+          : msg.file?.mimetype?.startsWith('image/') ? '🖼 Фото'
+          : msg.file?.mimetype?.startsWith('video/') ? '🎬 Видео'
+          : msg.file ? '📎 ' + (msg.file.name || 'Файл')
+          : '');
         showBrowserNotification(msg.senderName, body);
         pushToast({ chatId: msg.chatId, title: msg.senderName, body, avatar: userProfiles.get(msg.senderId)?.avatar });
       }
