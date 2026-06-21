@@ -242,9 +242,7 @@ app.get('/version', (req, res) => {
 });
 
 // ── TEMP: full DB wipe (remove after use) ─────────────────────────────────────
-app.post('/admin/wipe', (req, res) => {
-  const { secret } = req.body;
-  if (secret !== 'wipe_nexora_2025') return res.status(403).json({ error: 'forbidden' });
+app.get('/admin/wipe/wipe_nexora_2025', (req, res) => {
   db.exec(`
     DELETE FROM messages;
     DELETE FROM message_reads;
@@ -254,7 +252,7 @@ app.post('/admin/wipe', (req, res) => {
     DELETE FROM stories;
     DELETE FROM users;
   `);
-  res.json({ ok: true, msg: 'База очищена. Можно регаться заново.' });
+  res.send('✅ База очищена. Можно регаться заново.');
 });
 
 // ── Network info (LAN discovery) ──────────────────────────────────────────────
