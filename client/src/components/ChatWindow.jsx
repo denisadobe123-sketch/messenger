@@ -158,7 +158,13 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
 
     function onMessage(msg) {
       if (msg.chatId !== chat?.id) return;
-      setMessages(prev => prev.find(m => m.id === msg.id) ? prev : [...prev, msg]);
+      setMessages(prev => {
+        if (prev.find(m => m.id === msg.id)) return prev;
+        // Replace optimistic pending message from offline queue
+        const pendingIdx = msg.clientId ? prev.findIndex(m => m.clientId === msg.clientId && m.pending) : -1;
+        if (pendingIdx !== -1) return prev.map((m, i) => i === pendingIdx ? { ...msg, pending: false } : m);
+        return [...prev, msg];
+      });
       socket.emit('read_messages', { chatId: chat.id });
       setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
     }
@@ -237,12 +243,19 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     return () => document.removeEventListener('pointerdown', close);
   }, [showAttachMenu]);
 
-  // Load draft for this chat
+  // Load draft for this chat and resize textarea accordingly
   useEffect(() => {
     if (!chat?.id) return;
     try {
       const drafts = JSON.parse(localStorage.getItem(DRAFTS_KEY) || '{}');
-      setText(drafts[chat.id] || '');
+      const draft = drafts[chat.id] || '';
+      setText(draft);
+      requestAnimationFrame(() => {
+        const el = inputRef.current;
+        if (!el) return;
+        el.style.height = 'auto';
+        el.style.height = draft ? Math.min(el.scrollHeight, 120) + 'px' : '';
+      });
     } catch { setText(''); }
   }, [chat?.id]);
 
@@ -401,6 +414,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     }
 
     setText(''); setFileToSend(null); setReplyingTo(null);
+    if (inputRef.current) inputRef.current.style.height = '';
     if (socket) socket.emit('stop_typing', { chatId: chat.id });
   }
 
@@ -713,11 +727,18 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   if (!chat) {
     return (
       <div className="no-chat">
-        <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
-          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-        </svg>
-        <h2>Выберите чат</h2>
-        <p>Откройте диалог или найдите пользователя слева</p>
+        <div className="no-chat-icon">
+          <svg width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+        </div>
+        <h2>Nexora</h2>
+        <p>Выберите чат или найдите людей во вкладке «Люди»</p>
+        <div className="no-chat-tips">
+          <div className="no-chat-tip">💬 Личные и групповые чаты</div>
+          <div className="no-chat-tip">🔒 E2E секретные чаты</div>
+          <div className="no-chat-tip">📞 Голосовые и видеозвонки</div>
+        </div>
       </div>
     );
   }
@@ -894,6 +915,11 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
               />
               </Fragment>
             )
+        )}
+        {messages.length === 0 && !typingList.length && (
+          <div className="chat-empty-hint">
+            {isSecret ? '🔒 Секретный чат — сообщения шифруются на устройстве' : '👋 Начните переписку'}
+          </div>
         )}
         {typingList.length > 0 && (
           <div className="typing-indicator">

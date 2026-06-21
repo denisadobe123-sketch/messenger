@@ -175,6 +175,18 @@ export default function App() {
 
     socket.on('user_profile_updated', (profile) => {
       setUserProfiles(prev => new Map(prev).set(profile.id, profile));
+      // Keep avatar/bio fresh in chat list and in the open chat header
+      const updateChat = c => {
+        if (c.type !== 'private' && c.type !== 'secret') return c;
+        const otherId = c.members?.find(id => id !== user.id);
+        if (otherId !== profile.id) return c;
+        return { ...c,
+          otherUserAvatar: profile.avatar ?? c.otherUserAvatar,
+          displayName: profile.displayName || c.displayName,
+          otherUserBio: profile.bio ?? c.otherUserBio };
+      };
+      setChats(prev => prev.map(updateChat));
+      setSelectedChat(prev => prev ? updateChat(prev) : prev);
       if (profile.id === user.id) {
         const updated = { ...user, ...profile };
         setUser(updated);

@@ -779,7 +779,13 @@ io.on('connection', (socket) => {
 
   socket.on('send_message', async (data, ack) => {
     const { chatId, text, file, replyTo, voice, sticker, forwardOf, burnAfter, videoNote,
-            entities, poll, location, scheduledAt, enc } = data;
+            entities, poll, location, scheduledAt, enc, clientId } = data;
+    // Deduplicate offline-queue retries
+    if (clientId && Messages.getByClientId(clientId)) {
+      const existing = Messages.getByClientId(clientId);
+      if (typeof ack === 'function') ack({ ok: true, message: existing });
+      return;
+    }
     const chat = Chats.getById(chatId);
     if (!chat || !chat.members.includes(userId)) return;
 
@@ -797,7 +803,7 @@ io.on('connection', (socket) => {
       chatId, senderId: userId, senderName: socket.user.username,
       text: text || null, file: file || null, voice: voice || null, sticker: sticker || null,
       videoNote: videoNote || null, entities: entities || null, poll: poll || null, location: location || null,
-      enc: !!enc,
+      enc: !!enc, clientId: clientId || null,
       forwardOf: forwardOf || null, replyTo: replySnippet, reactions: [], edited: false, deleted: false,
       createdAt: new Date().toISOString(), readBy: [userId], scheduledAt: sched,
       burnAfter: burnAfter || null,

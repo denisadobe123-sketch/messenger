@@ -582,11 +582,18 @@ body {
 /* ── No chat ─────────────────────────────────────── */
 .no-chat {
   flex: 1; display: flex; flex-direction: column; align-items: center;
-  justify-content: center; color: var(--text-muted); gap: 14px;
+  justify-content: center; color: var(--text-muted); gap: 14px; padding: 32px;
 }
-.no-chat svg { opacity: 0.2; }
-.no-chat h2 { font-size: 20px; font-weight: 600; color: var(--text-secondary); }
-.no-chat p  { font-size: 14px; }
+.no-chat-icon {
+  width: 110px; height: 110px; border-radius: 50%;
+  background: var(--bg-secondary); display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 0 40px var(--accent-glow);
+}
+.no-chat-icon svg { opacity: 0.35; color: var(--accent); }
+.no-chat h2 { font-size: 22px; font-weight: 800; color: var(--text-primary); margin-top: 4px; }
+.no-chat p  { font-size: 14px; color: var(--text-secondary); text-align: center; }
+.no-chat-tips { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.no-chat-tip { font-size: 13px; color: var(--text-muted); background: var(--bg-secondary); padding: 8px 18px; border-radius: 20px; }
 
 /* ── Pinned banner ───────────────────────────────── */
 .pinned-banner {
@@ -1311,6 +1318,14 @@ body {
   -webkit-overflow-scrolling: touch;       /* нативный инерционный скролл */
   overscroll-behavior: contain;            /* без проброса скролла наружу */
   scrollbar-width: thin;
+}
+
+/* ── Пустой чат ──────────────────────────────────────── */
+.chat-empty-hint {
+  align-self: center; margin: auto; padding: 10px 20px;
+  background: var(--bg-secondary); border-radius: 16px;
+  font-size: 13px; color: var(--text-secondary);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
 }
 
 /* ── Системные сообщения / разделитель непрочитанных ── */

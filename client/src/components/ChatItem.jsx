@@ -12,9 +12,14 @@ function previewText(msg, chatId) {
   const draft = getDraft(chatId);
   if (draft) return <><span className="chat-preview-draft">Черновик: </span>{draft.slice(0, 40)}</>;
   if (!msg) return 'Нет сообщений';
+  if (msg.deleted) return '🚫 Сообщение удалено';
+  if (msg.system) return msg.text || '';
   if (msg.sticker) return msg.sticker;
   if (msg.voice) return '🎤 Голосовое';
-  if (msg.file) return msg.file.mimetype?.startsWith('image/') ? '🖼 Фото' : '📎 ' + msg.file.name;
+  if (msg.videoNote) return '📹 Видео-кружок';
+  if (msg.poll) return '📊 ' + (msg.poll.question || 'Опрос');
+  if (msg.location) return '📍 Геолокация';
+  if (msg.file) return msg.file.mimetype?.startsWith('image/') ? '🖼 Фото' : msg.file.mimetype?.startsWith('video/') ? '🎬 Видео' : '📎 ' + msg.file.name;
   return msg.text || '';
 }
 
