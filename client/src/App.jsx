@@ -121,7 +121,11 @@ export default function App() {
         // фоновая синхронизация отправила сообщения
       }
       if (e.data?.type === 'SW_RELOAD') {
-        window.location.reload(true);
+        // защита от цикла перезагрузок: не чаще одного раза за сессию
+        if (!sessionStorage.getItem('sw_reloaded')) {
+          sessionStorage.setItem('sw_reloaded', '1');
+          window.location.reload();
+        }
       }
     }
     navigator.serviceWorker.addEventListener('message', onSwMessage);

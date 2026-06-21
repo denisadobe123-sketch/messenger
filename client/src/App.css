@@ -2143,39 +2143,44 @@ body {
    Последние правила побеждают при одинаковой специфичности
    ══════════════════════════════════════════════════════ */
 @media (max-width: 760px) {
-  /* Слайд-анимация как в Telegram: сайдбар уезжает влево,
-     чат приезжает справа. Вместо display:none — transform. */
+  /* Надёжный layout: показываем ровно один экран через display.
+     Анимация входа чата — через @keyframes (срабатывает при смене display,
+     в отличие от transition на position:fixed, который в WebView капризен). */
+  .app-layout {
+    position: relative !important;
+    flex-direction: column !important;
+    height: 100dvh !important;
+    overflow: hidden !important;
+  }
   .sidebar {
-    position: fixed !important;
-    inset: 0 !important;
-    z-index: 10 !important;
+    position: relative !important;
+    inset: auto !important;
     width: 100% !important;
+    min-width: 0 !important;
+    flex: 1 !important;
     display: flex !important;
     flex-direction: column !important;
-    transform: translateX(0) !important;
-    transition: transform 0.3s cubic-bezier(.32,.72,0,1) !important;
-    will-change: transform;
+    border-right: none !important;
+    transform: none !important;
+    z-index: 1 !important;
   }
-  .app-layout.chat-open .sidebar {
-    transform: translateX(-100%) !important;
-    pointer-events: none !important;
-  }
-  .chat-window, .no-chat {
+  .app-layout.chat-open .sidebar { display: none !important; }
+
+  .chat-window {
     position: fixed !important;
     inset: 0 !important;
-    z-index: 20 !important;
-    display: flex !important;
+    width: 100% !important;
+    z-index: 50 !important;
+    display: none !important;
     flex-direction: column !important;
-    transform: translateX(100%) !important;
-    transition: transform 0.3s cubic-bezier(.32,.72,0,1) !important;
-    pointer-events: none !important;
-    will-change: transform;
+    transform: none !important;
   }
   .app-layout.chat-open .chat-window {
-    transform: translateX(0) !important;
-    pointer-events: auto !important;
+    display: flex !important;
+    animation: chatSlideIn 0.28s cubic-bezier(.32,.72,0,1);
   }
-  .app-layout:not(.chat-open) .no-chat { transform: translateX(100%) !important; }
+  /* Заглушку «нет чата» на телефоне не показываем никогда */
+  .no-chat { display: none !important; }
 
   /* Шапка — нет видимой границы (прозрачное стекло) */
   .sidebar-header {
@@ -2222,4 +2227,9 @@ body {
 
   /* Кнопка Back */
   .back-btn { display: flex !important; }
+}
+
+@keyframes chatSlideIn {
+  from { transform: translateX(28%); opacity: 0.5; }
+  to   { transform: translateX(0);   opacity: 1; }
 }

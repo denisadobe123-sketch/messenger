@@ -3,8 +3,17 @@ import { registerRoute } from 'workbox-routing';
 import { NetworkFirst, CacheFirst } from 'workbox-strategies';
 
 cleanupOutdatedCaches();
-precacheAndRoute(self.__WB_MANIFEST || []);
 
+// НЕ кешируем HTML в precache: иначе старый index.html (cache-first) затеняет
+// сетевой маршрут и приложение навсегда залипает на старой версии бандлов.
+// Приложение в APK всегда грузится с Railway по сети, так что HTML берём из сети.
+const manifest = (self.__WB_MANIFEST || []).filter(entry => {
+  const url = typeof entry === 'string' ? entry : entry.url;
+  return !/\.html(\?|$)/i.test(url);
+});
+precacheAndRoute(manifest);
+
+// Навигация — всегда сначала сеть (свежий index.html → свежие хешированные бандлы)
 registerRoute(
   ({ request }) => request.mode === 'navigate',
   new NetworkFirst({ cacheName: 'html-cache', networkTimeoutSeconds: 5 })
