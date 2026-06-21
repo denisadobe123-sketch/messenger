@@ -53,7 +53,7 @@ export default function StoriesBar({ currentUser, token }) {
   return (
     <>
       <div className="stories-bar">
-        <label className="story-avatar" style={{ cursor: 'pointer' }}>
+        <label className="story-avatar" style={{ cursor: 'pointer', position: 'relative' }}>
           <div className={`story-ring ${myGroup ? '' : 'add'}`}>
             {myGroup?.avatar
               ? <img src={myGroup.avatar} alt="" />
@@ -61,7 +61,7 @@ export default function StoriesBar({ currentUser, token }) {
           </div>
           <span className="story-name">Моя</span>
           <input type="file" accept="image/*,video/*" disabled={uploading}
-            style={{ position: 'absolute', opacity: 0, width: 0, height: 0, overflow: 'hidden' }}
+            style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }}
             onChange={onPickFile} />
         </label>
         {uploadErr && <div className="stories-upload-err">{uploadErr}</div>}

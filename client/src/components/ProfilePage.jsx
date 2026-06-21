@@ -93,29 +93,27 @@ export default function ProfilePage({ user, token, onUpdate, onLogout }) {
   return (
     <div className="profile-page">
       <div className="profile-page-header">
-        <label style={{ cursor: 'pointer', display: 'block', textAlign: 'center' }}>
-          <div className="avatar lg profile-avatar-wrap" style={{ margin: '0 auto', ...(!avatarUrl ? { background: avatarBg } : {}) }}>
-            {avatarUrl ? <img src={avatarUrl} alt="avatar" /> : initials}
-            {loading && (
-              <div className="profile-avatar-loading">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
-                  <circle cx="12" cy="12" r="10" strokeOpacity=".3"/>
-                  <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur=".8s" repeatCount="indefinite"/></path>
-                </svg>
-              </div>
-            )}
-            <div className="profile-avatar-overlay">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>
+        <div className="avatar lg profile-avatar-wrap" style={{ margin: '0 auto', ...(!avatarUrl ? { background: avatarBg } : {}) }}>
+          {avatarUrl ? <img src={avatarUrl} alt="avatar" /> : initials}
+          {loading && (
+            <div className="profile-avatar-loading">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5">
+                <circle cx="12" cy="12" r="10" strokeOpacity=".3"/>
+                <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur=".8s" repeatCount="indefinite"/></path>
               </svg>
             </div>
+          )}
+          <div className="profile-avatar-overlay">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>
+            </svg>
           </div>
-          <div className="avatar-upload-btn" style={{ marginTop: 8 }}>
-            {loading ? 'Загружаем...' : 'Сменить фото'}
-          </div>
-          <input ref={fileRef} type="file" accept="image/*"
-            style={{ position: 'absolute', opacity: 0, width: 0, height: 0, overflow: 'hidden' }}
+          <input id="avatar-file" ref={fileRef} type="file" accept="image/*"
+            style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer', borderRadius: '50%', zIndex: 3 }}
             onChange={uploadAvatar} disabled={loading} />
+        </div>
+        <label htmlFor="avatar-file" className="avatar-upload-btn" style={{ marginTop: 8, cursor: 'pointer', display: 'inline-block' }}>
+          {loading ? 'Загружаем...' : 'Сменить фото'}
         </label>
         <div className="profile-page-displayname">{displayName || user.username}</div>
         <div className="profile-page-handle">@{handle || user.username}</div>
