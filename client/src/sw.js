@@ -21,12 +21,14 @@ self.skipWaiting();
 // со старым index.html, ссылающимся на уже несуществующие бандлы.
 self.addEventListener('activate', e => e.waitUntil((async () => {
   await self.clients.claim();
-  // Сносим кэш навигаций (старый index.html, ссылавшийся на исчезнувшие бандлы).
-  // Старые workbox-precache ревизии чистит cleanupOutdatedCaches() выше.
   await caches.delete('html-cache');
-  // Перезагружаем уже открытые окна один раз — подтянется свежий HTML и JS.
+  // Сначала пробуем navigate(), в Capacitor WebView он иногда не работает —
+  // fallback на postMessage({ type: 'SW_RELOAD' }), который слушает App.jsx
   const wins = await self.clients.matchAll({ type: 'window' });
-  for (const c of wins) { try { c.navigate(c.url); } catch {} }
+  for (const c of wins) {
+    try { await c.navigate(c.url); }
+    catch { try { c.postMessage({ type: 'SW_RELOAD' }); } catch {} }
+  }
 })()));
 
 // ── Push Notifications ────────────────────────────────────────────────────────

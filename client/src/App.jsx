@@ -118,7 +118,10 @@ export default function App() {
         e.ports[0].postMessage({ token: localStorage.getItem('token') || '' });
       }
       if (e.data?.type === 'QUEUE_FLUSHED') {
-        console.log('[SW] Background Sync flushed', e.data.clientIds?.length, 'messages');
+        // фоновая синхронизация отправила сообщения
+      }
+      if (e.data?.type === 'SW_RELOAD') {
+        window.location.reload(true);
       }
     }
     navigator.serviceWorker.addEventListener('message', onSwMessage);
