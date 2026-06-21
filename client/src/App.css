@@ -386,6 +386,10 @@ body {
   opacity: 0; transition: opacity 0.15s;
 }
 .profile-avatar-wrap:hover .profile-avatar-overlay { opacity: 1; }
+/* На тач-устройствах (нет hover) — камера всегда видна */
+@media (hover: none) {
+  .profile-avatar-overlay { opacity: 0.65; }
+}
 .profile-avatar-loading {
   position: absolute; inset: 0; border-radius: 50%;
   background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center;
@@ -1190,7 +1194,11 @@ body {
   .no-chat { display: none; }
 
   /* Профиль */
-  .profile-page { padding: 16px; }
+  .profile-page-body { padding: 16px; }
+  .profile-page-header { padding: 24px 16px 20px; }
+  .profile-page-header .avatar.lg { width: 80px; height: 80px; font-size: 28px; }
+  /* Кнопка "Сменить фото" — крупнее на мобиле */
+  .avatar-upload-btn { padding: 10px 20px; font-size: 14px; min-width: 140px; }
 
   /* Поиск по чатам */
   .chat-search-bar input { font-size: 16px !important; }

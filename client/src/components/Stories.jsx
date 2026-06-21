@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { API_URL } from '../api.js';
 import { getSocket } from '../socket.js';
@@ -9,7 +9,6 @@ export default function StoriesBar({ currentUser, token }) {
   const [viewer, setViewer] = useState(null); // { groupIndex }
   const [uploading, setUploading] = useState(false);
   const [uploadErr, setUploadErr] = useState('');
-  const fileRef = useRef(null);
 
   function load() {
     fetch(`${API_URL}/stories`, { headers: { Authorization: `Bearer ${token}` } })
@@ -54,15 +53,17 @@ export default function StoriesBar({ currentUser, token }) {
   return (
     <>
       <div className="stories-bar">
-        <div className="story-avatar" onClick={() => !uploading && fileRef.current?.click()}>
+        <label className="story-avatar" style={{ cursor: 'pointer' }}>
           <div className={`story-ring ${myGroup ? '' : 'add'}`}>
             {myGroup?.avatar
               ? <img src={myGroup.avatar} alt="" />
               : <div className="story-init">{uploading ? '…' : '+'}</div>}
           </div>
           <span className="story-name">Моя</span>
-        </div>
-        <input ref={fileRef} type="file" accept="image/*,video/*" style={{ display: 'none' }} onChange={onPickFile} />
+          <input type="file" accept="image/*,video/*" disabled={uploading}
+            style={{ position: 'absolute', opacity: 0, width: 0, height: 0, overflow: 'hidden' }}
+            onChange={onPickFile} />
+        </label>
         {uploadErr && <div className="stories-upload-err">{uploadErr}</div>}
         {myGroup && (
           <StoryRing group={myGroup} onClick={() => setViewer({ groupIndex: groups.indexOf(myGroup) })} />

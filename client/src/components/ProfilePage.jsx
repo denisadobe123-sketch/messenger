@@ -113,7 +113,9 @@ export default function ProfilePage({ user, token, onUpdate, onLogout }) {
           <div className="avatar-upload-btn" style={{ marginTop: 8 }}>
             {loading ? 'Загружаем...' : 'Сменить фото'}
           </div>
-          <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={uploadAvatar} disabled={loading} />
+          <input ref={fileRef} type="file" accept="image/*"
+            style={{ position: 'absolute', opacity: 0, width: 0, height: 0, overflow: 'hidden' }}
+            onChange={uploadAvatar} disabled={loading} />
         </label>
         <div className="profile-page-displayname">{displayName || user.username}</div>
         <div className="profile-page-handle">@{handle || user.username}</div>
