@@ -139,7 +139,6 @@ body {
 }
 
 .auth-logo { text-align: center; margin-bottom: 28px; }
-.auth-logo svg { width: 64px; height: 64px; color: var(--accent); }
 .auth-logo h1 { font-size: 24px; font-weight: 800; margin-top: 12px; }
 .auth-logo p { font-size: 13px; color: var(--text-secondary); margin-top: 4px; }
 
@@ -198,7 +197,10 @@ body {
 /* Telegram-style auth */
 .auth-box.tg-style { padding: 48px 40px; }
 .auth-logo-icon { width: 80px; height: 80px; margin: 0 auto 16px; }
-.auth-logo-icon svg { width: 80px; height: 80px; }
+.auth-logo-icon img {
+  width: 100%; height: 100%; border-radius: 50%; object-fit: cover;
+  filter: drop-shadow(0 0 14px var(--accent-glow));
+}
 .auth-logo h1 { font-size: 26px; font-weight: 800; margin: 0 0 32px; }
 .auth-desc {
   font-size: 15px; color: var(--text-secondary); text-align: center;
@@ -1256,8 +1258,6 @@ body {
 @keyframes shimmerTitle {
   to { background-position: -250% center; }
 }
-.auth-logo svg { filter: drop-shadow(0 0 14px var(--accent-glow)); }
-
 /* Пузыри сообщений — хвостики */
 .msg-out { border-bottom-right-radius: 5px; }
 .msg-in  { border-bottom-left-radius: 5px; }

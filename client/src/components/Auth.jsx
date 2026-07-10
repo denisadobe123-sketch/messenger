@@ -128,13 +128,7 @@ export default function Auth({ onAuth, initialError }) {
         {/* Logo */}
         <div className="auth-logo">
           <div className="auth-logo-icon">
-            <svg viewBox="0 0 64 64" fill="none">
-              <circle cx="32" cy="32" r="32" fill="var(--accent)" />
-              <path d="M12 20 Q12 14 18 14 L46 14 Q52 14 52 20 L52 36 Q52 42 46 42 L36 42 L28 50 L28 42 L18 42 Q12 42 12 36 Z" fill="white" opacity="0.95"/>
-              <circle cx="23" cy="28" r="2.5" fill="var(--accent)"/>
-              <circle cx="32" cy="28" r="2.5" fill="var(--accent)"/>
-              <circle cx="41" cy="28" r="2.5" fill="var(--accent)"/>
-            </svg>
+            <img src="/icon-512.png" alt="Nexora" />
           </div>
           <h1>Nexora</h1>
         </div>
