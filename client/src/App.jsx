@@ -65,6 +65,7 @@ export default function App() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [locked, setLocked] = useState(() => hasPasscode() && !isUnlocked());
   const [confirmDialog, setConfirmDialog] = useState(null); // { message, onConfirm }
+  const [sessionExpiredMsg, setSessionExpiredMsg] = useState('');
   const selectedChatRef = useRef(null);
   const mutedRef = useRef(mutedChats);
 
@@ -155,6 +156,12 @@ export default function App() {
     socket.on('connect', async () => {
       const sz = await queueSize();
       if (sz > 0) flushQueue(socket, n => console.log(`[Queue] Flushed ${n}`));
+    });
+
+    // Невалидный/просроченный токен на сокете — раньше приложение просто
+    // молча никогда не подключалось к realtime, без единого объяснения.
+    socket.on('connect_error', (err) => {
+      if (err?.message === 'Auth error') forceLogout('Сессия истекла — войдите заново');
     });
 
     socket.on('user_status', ({ userId, online, lastSeen, status }) => {
@@ -253,6 +260,7 @@ export default function App() {
   async function loadChats(t) {
     try {
       const res = await fetch(`${API_URL}/chats`, { headers: { Authorization: `Bearer ${t}` } });
+      if (res.status === 401) { forceLogout('Сессия истекла — войдите заново'); return; }
       const data = await res.json();
       setChats(Array.isArray(data) ? data : []);
     } catch {}
@@ -260,6 +268,7 @@ export default function App() {
 
   function handleAuth(userData, tok) {
     setUser(userData); setToken(tok);
+    setSessionExpiredMsg('');
   }
 
   function handleLogout() {
@@ -267,6 +276,13 @@ export default function App() {
     localStorage.removeItem('token'); localStorage.removeItem('user');
     clearE2E();
     disconnectSocket(); setUser(null); setToken(''); setChats([]); setSelectedChat(null);
+  }
+
+  // Разлогин по невалидному/просроченному токену — с объяснением на экране входа,
+  // а не молчаливым показом пустых списков, как было раньше.
+  function forceLogout(message) {
+    setSessionExpiredMsg(message);
+    handleLogout();
   }
 
   function deleteChat(chat) {
@@ -313,7 +329,7 @@ export default function App() {
   }
 
   if (locked) return <PasscodeLock onUnlock={() => setLocked(false)} />;
-  if (!user) return <Auth onAuth={handleAuth} />;
+  if (!user) return <Auth onAuth={handleAuth} initialError={sessionExpiredMsg} />;
 
   return (
     <div className={`app-layout ${selectedChat ? 'chat-open' : ''} ${!isOnline ? 'offline-mode' : ''}`}>

@@ -1,12 +1,12 @@
 import { useState, useRef } from 'react';
 import { API_URL as API } from '../api.js';
 
-export default function Auth({ onAuth }) {
+export default function Auth({ onAuth, initialError }) {
   const [step, setStep] = useState('email'); // 'email' | 'code' | '2fa'
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [otpToken, setOtpToken] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError] = useState(initialError || '');
   const [loading, setLoading] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const [tempToken, setTempToken] = useState('');

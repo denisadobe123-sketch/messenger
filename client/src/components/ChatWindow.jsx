@@ -693,12 +693,26 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   // ── Search ──────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!showSearch || !searchQuery.trim()) { setSearchResults([]); return; }
+
+    // Секретные чаты: сервер хранит только шифротекст и не может искать по нему —
+    // ищем локально среди уже загруженных и расшифрованных на этом устройстве сообщений.
+    if (isSecret) {
+      const q = searchQuery.trim().toLowerCase();
+      const results = messages
+        .filter(m => !m.deleted && (m.enc ? decrypted[m.id] : m.text)?.toLowerCase().includes(q))
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      setSearchResults(results);
+      setSearchIndex(0);
+      if (results.length) scrollToMessage(results[results.length - 1].id);
+      return;
+    }
+
     const t = setTimeout(() => {
       fetch(`${API_URL}/messages/${chat.id}/search?q=${encodeURIComponent(searchQuery)}`, { headers: { Authorization: `Bearer ${token}` } })
         .then(r => r.json()).then(results => { setSearchResults(results); setSearchIndex(0); if (results.length) scrollToMessage(results[results.length - 1].id); });
     }, 300);
     return () => clearTimeout(t);
-  }, [searchQuery, showSearch]);
+  }, [searchQuery, showSearch, isSecret, messages, decrypted]);
 
   function navigateSearch(dir) {
     if (!searchResults.length) return;
@@ -917,7 +931,8 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
 
       {showSearch && (
         <div className="chat-search-bar">
-          <input autoFocus placeholder="Поиск по сообщениям..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+          <input autoFocus placeholder={isSecret ? 'Поиск по загруженным сообщениям…' : 'Поиск по сообщениям...'}
+            value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
           {searchResults.length > 0 && (
             <>
               <span className="search-result-count">{searchIndex + 1} / {searchResults.length}</span>
