@@ -1,10 +1,3 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="115" fill="#0a0e14"/>
-  <circle cx="256" cy="256" r="205" fill="#00e5c0"/>
-  <g transform="translate(107.52000000000001,107.52000000000001) scale(4.64)">
-    <path d="M12 20 Q12 14 18 14 L46 14 Q52 14 52 20 L52 36 Q52 42 46 42 L36 42 L28 50 L28 42 L18 42 Q12 42 12 36 Z" fill="#ffffff" fill-opacity="0.95"/>
-    <circle cx="23" cy="28" r="2.5" fill="#00e5c0"/>
-    <circle cx="32" cy="28" r="2.5" fill="#00e5c0"/>
-    <circle cx="41" cy="28" r="2.5" fill="#00e5c0"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 512 512">
+  <image href="/icon-512.png" width="512" height="512"/>
 </svg>
