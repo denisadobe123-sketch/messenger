@@ -10,7 +10,7 @@ import { connectSocket, disconnectSocket, getSocket } from './socket.js';
 import { API_URL } from './api.js';
 import { getTheme, applyTheme } from './theme.js';
 import { initPushNotifications, removePushToken } from './pushNotifications.js';
-import { initNative, tap } from './native.js';
+import { initNative, tap, registerBackButton } from './native.js';
 import UpdateChecker from './components/UpdateChecker.jsx';
 import NetworkBadge from './components/NetworkBadge.jsx';
 import PasscodeLock from './components/PasscodeLock.jsx';
@@ -86,6 +86,16 @@ export default function App() {
   }
 
   useEffect(() => { selectedChatRef.current = selectedChat; }, [selectedChat]);
+
+  // Аппаратная/жестовая кнопка «назад»: из открытого чата — к списку чатов,
+  // иначе — сворачиваем приложение (а не убиваем процесс, как по умолчанию).
+  useEffect(() => {
+    const unregister = registerBackButton(() => {
+      if (selectedChatRef.current) { setSelectedChat(null); return true; }
+      return false;
+    });
+    return () => { unregister.then(fn => fn()).catch(() => {}); };
+  }, []);
 
   useEffect(() => {
     applyTheme(getTheme());

@@ -1,6 +1,6 @@
 import { Capacitor } from '@capacitor/core';
 
-let StatusBar, Style, Haptics, ImpactStyle, Keyboard;
+let StatusBar, Style, Haptics, ImpactStyle, Keyboard, CapApp;
 
 // Динамически грузим плагины только на нативной платформе
 async function loadPlugins() {
@@ -13,10 +13,27 @@ async function loadPlugins() {
     Haptics = h.Haptics; ImpactStyle = h.ImpactStyle;
     const k = await import('@capacitor/keyboard');
     Keyboard = k.Keyboard;
+    const a = await import('@capacitor/app');
+    CapApp = a.App;
     return true;
   } catch {
     return false;
   }
+}
+
+// Аппаратная/жестовая кнопка «назад» на Android: по умолчанию Capacitor либо
+// идёт назад по истории WebView, либо сразу убивает процесс (exitApp) — для SPA
+// без роутинга это означает мгновенный выход из приложения даже из открытого чата.
+// onBack должен вернуть true, если сам обработал нажатие (например, закрыл чат/модалку);
+// если false — по умолчанию сворачиваем приложение (как обычное поведение Android).
+export async function registerBackButton(onBack) {
+  const ok = await loadPlugins();
+  if (!ok || !CapApp) return () => {};
+  const sub = CapApp.addListener('backButton', () => {
+    const handled = onBack?.();
+    if (!handled) CapApp.minimizeApp();
+  });
+  return () => sub.then(s => s.remove()).catch(() => {});
 }
 
 // Инициализация: тёмный статус-бар под фон приложения
