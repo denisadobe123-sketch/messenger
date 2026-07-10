@@ -39,15 +39,32 @@ function getDayLabel(iso) {
   return d.toLocaleDateString('ru', opts);
 }
 
+const GROUP_GAP_MS = 5 * 60 * 1000;
+
+// Группирует подряд идущие сообщения одного отправителя (как в Telegram/Discord):
+// имя показывается только на первом сообщении серии, "хвостик" пузыря — только на последнем.
 function groupByDay(messages) {
-  const groups = [];
+  const raw = [];
   let lastDay = null;
   for (const msg of messages) {
     const day = getDayLabel(msg.createdAt);
-    if (day !== lastDay) { groups.push({ type: 'day', label: day }); lastDay = day; }
-    groups.push({ type: 'msg', msg });
+    if (day !== lastDay) { raw.push({ type: 'day', label: day }); lastDay = day; }
+    raw.push({ type: 'msg', msg });
   }
-  return groups;
+  for (let i = 0; i < raw.length; i++) {
+    if (raw[i].type !== 'msg') continue;
+    const msg = raw[i].msg;
+    if (msg.system) { raw[i].isGroupStart = true; raw[i].isGroupEnd = true; continue; }
+    const prev = raw[i - 1];
+    const next = raw[i + 1];
+    const sameAsPrev = prev?.type === 'msg' && !prev.msg.system && prev.msg.senderId === msg.senderId
+      && (new Date(msg.createdAt) - new Date(prev.msg.createdAt)) < GROUP_GAP_MS;
+    const sameAsNext = next?.type === 'msg' && !next.msg.system && next.msg.senderId === msg.senderId
+      && (new Date(next.msg.createdAt) - new Date(msg.createdAt)) < GROUP_GAP_MS;
+    raw[i].isGroupStart = !sameAsPrev;
+    raw[i].isGroupEnd = !sameAsNext;
+  }
+  return raw;
 }
 
 export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuses, userLastSeen, token, onStartCall, onStartGroupCall, onBack, chats }) {
@@ -992,7 +1009,9 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
               <MessageItem
                 msg={item.msg.enc ? { ...item.msg, text: decrypted[item.msg.id] ?? '🔒 Расшифровка…' } : item.msg}
                 isOwn={item.msg.senderId === currentUser.id}
-                showSender={chat.type === 'group'}
+                showSender={chat.type === 'group' && item.isGroupStart}
+                groupStart={item.isGroupStart}
+                groupEnd={item.isGroupEnd}
                 isRead={item.msg.readBy?.length > 1}
                 currentUserId={currentUser.id}
                 isPinned={effectivePinIds.includes(item.msg.id)}

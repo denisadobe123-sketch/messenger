@@ -78,7 +78,7 @@ function LocationView({ location }) {
 }
 
 export default function MessageItem({
-  msg, isOwn, showSender, isRead, currentUserId, isPinned, highlighted,
+  msg, isOwn, showSender, groupStart = true, groupEnd = true, isRead, currentUserId, isPinned, highlighted,
   onReact, onReply, onEdit, onDelete, onPin, onUnpin, onScrollToReply, onForward,
   onImageClick, selectMode, selected, onToggleSelect, chatMemberCount, token, onVote
 }) {
@@ -140,7 +140,7 @@ export default function MessageItem({
 
   if (msg.deleted) {
     return (
-      <div className={`msg-bubble ${isOwn ? 'msg-out' : 'msg-in'}`}>
+      <div className={`msg-bubble ${isOwn ? 'msg-out' : 'msg-in'} ${!groupStart ? 'msg-grouped' : ''} ${!groupEnd ? 'no-tail' : ''}`}>
         {!isOwn && showSender && <div className="msg-sender">{msg.senderName}</div>}
         <div className="msg-deleted">🚫 Сообщение удалено</div>
         <div className="msg-footer"><span className="msg-time">{time}</span></div>
@@ -151,7 +151,7 @@ export default function MessageItem({
   if (msg.sticker) {
     return (
       <div
-        className={`msg-row ${isOwn ? 'row-out' : 'row-in'} ${selectMode ? 'select-mode' : ''}`}
+        className={`msg-row ${isOwn ? 'row-out' : 'row-in'} ${selectMode ? 'select-mode' : ''} ${!groupStart ? 'msg-grouped' : ''}`}
         onClick={() => selectMode && onToggleSelect?.(msg.id)}
       >
         {selectMode && <span className={`msg-checkbox ${selected ? 'checked' : ''}`}>{selected && '✓'}</span>}
@@ -165,7 +165,7 @@ export default function MessageItem({
 
   return (
     <div
-      className={`msg-row ${isOwn ? 'row-out' : 'row-in'} ${selectMode ? 'select-mode' : ''}`}
+      className={`msg-row ${isOwn ? 'row-out' : 'row-in'} ${selectMode ? 'select-mode' : ''} ${!groupStart ? 'msg-grouped' : ''}`}
       onClick={() => selectMode && onToggleSelect?.(msg.id)}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
@@ -173,7 +173,7 @@ export default function MessageItem({
     >
       {selectMode && <span className={`msg-checkbox ${selected ? 'checked' : ''}`}>{selected && '✓'}</span>}
       <div
-        className={`msg-bubble ${isOwn ? 'msg-out' : 'msg-in'} ${highlighted ? 'search-highlight' : ''}`}
+        className={`msg-bubble ${isOwn ? 'msg-out' : 'msg-in'} ${highlighted ? 'search-highlight' : ''} ${!groupEnd ? 'no-tail' : ''}`}
         id={`msg-${msg.id}`}
         style={swipeX ? { transform: `translateX(${swipeX}px)` } : undefined}
       >
