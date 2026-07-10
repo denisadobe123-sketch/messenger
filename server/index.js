@@ -667,9 +667,29 @@ app.get('/search', authMiddleware, (req, res) => {
   }));
 });
 
+// Строит краткую цитату для reply (используется при обычной отправке и при разгрузке офлайн-очереди)
+function buildReplySnippet(replyTo) {
+  if (!replyTo) return null;
+  const orig = Messages.getById(replyTo);
+  if (!orig) return null;
+  return { id: orig.id, senderName: orig.senderName,
+    text: orig.deleted ? 'Сообщение удалено' : (orig.text || (orig.voice ? '🎤 Голосовое' : (orig.sticker || (orig.file ? '📎 Файл' : '')))) };
+}
+// Планирует автоудаление сообщения через burnAfter секунд (используется везде, где можно отправить burn-сообщение)
+function scheduleBurn(chatId, messageId, burnAfter) {
+  if (!burnAfter) return;
+  setTimeout(() => {
+    const m = Messages.getById(messageId);
+    if (m && !m.deleted) {
+      Messages.patch(messageId, { deleted: true, text: null, file: null, voice: null, sticker: null });
+      io.to(chatId).emit('message_deleted', { messageId, burned: true });
+    }
+  }, burnAfter * 1000);
+}
+
 // ── Queued messages (Background Sync from Service Worker) ─────────────────────
 app.post('/messages/queued', authMiddleware, async (req, res) => {
-  const { chatId, text, file, sticker, voice, replyTo, clientId } = req.body;
+  const { chatId, text, file, sticker, voice, replyTo, clientId, burnAfter } = req.body;
   const chat = Chats.getById(chatId);
   if (!chat || !chat.members.includes(req.user.id)) return res.status(403).json({ error: 'Нет доступа' });
   if (clientId && Messages.getByClientId(clientId))
@@ -681,10 +701,13 @@ app.post('/messages/queued', authMiddleware, async (req, res) => {
     clientId: clientId || null, chatId,
     senderId: req.user.id, senderName,
     text: text || null, file: file || null, voice: voice || null, sticker: sticker || null,
-    forwardOf: null, replyTo: null, reactions: [], edited: false, deleted: false,
-    createdAt: new Date().toISOString(), readBy: [req.user.id]
+    forwardOf: null, replyTo: buildReplySnippet(replyTo), reactions: [], edited: false, deleted: false,
+    createdAt: new Date().toISOString(), readBy: [req.user.id],
+    burnAfter: burnAfter || null,
+    burnAt: burnAfter ? new Date(Date.now() + burnAfter * 1000).toISOString() : null
   });
   io.to(chatId).emit('new_message', message);
+  scheduleBurn(chatId, message.id, burnAfter);
   // Notify offline members
   const pushBody = sticker || text || (voice ? '🎤 Голосовое' : '📎 Файл');
   for (const memberId of chat.members) {
@@ -792,11 +815,14 @@ io.on('connection', (socket) => {
     const chat = Chats.getById(chatId);
     if (!chat || !chat.members.includes(userId)) return;
 
-    let replySnippet = null;
-    if (replyTo) {
-      const orig = Messages.getById(replyTo);
-      if (orig) replySnippet = { id: orig.id, senderName: orig.senderName,
-        text: orig.deleted ? 'Сообщение удалено' : (orig.text || (orig.voice ? '🎤 Голосовое' : (orig.sticker || (orig.file ? '📎 Файл' : '')))) };
+    // Блокировка: в приватных/секретных чатах, если любая из сторон заблокировала другую,
+    // сообщение не доставляется вообще (а не просто скрывает пуш-уведомление).
+    if (chat.type === 'private' || chat.type === 'secret') {
+      const otherId = chat.members.find(id => id !== userId);
+      if (otherId && (Blocked.isBlocked(otherId, userId) || Blocked.isBlocked(userId, otherId))) {
+        if (typeof ack === 'function') ack({ ok: false, error: 'blocked' });
+        return;
+      }
     }
 
     // Запланированное сообщение в будущее — сохраняем, но не рассылаем сейчас
@@ -807,7 +833,7 @@ io.on('connection', (socket) => {
       text: text || null, file: file || null, voice: voice || null, sticker: sticker || null,
       videoNote: videoNote || null, entities: entities || null, poll: poll || null, location: location || null,
       enc: !!enc, clientId: clientId || null,
-      forwardOf: forwardOf || null, replyTo: replySnippet, reactions: [], edited: false, deleted: false,
+      forwardOf: forwardOf || null, replyTo: buildReplySnippet(replyTo), reactions: [], edited: false, deleted: false,
       createdAt: new Date().toISOString(), readBy: [userId], scheduledAt: sched,
       burnAfter: burnAfter || null,
       burnAt: burnAfter ? new Date(Date.now() + burnAfter * 1000).toISOString() : null });
@@ -817,16 +843,7 @@ io.on('connection', (socket) => {
     io.to(chatId).emit('new_message', message);
     if (typeof ack === 'function') ack({ ok: true, message });
 
-    // Auto-delete after burnAfter seconds
-    if (burnAfter) {
-      setTimeout(() => {
-        const m = Messages.getById(message.id);
-        if (m && !m.deleted) {
-          Messages.patch(message.id, { deleted: true, text: null, file: null, voice: null, sticker: null });
-          io.to(chatId).emit('message_deleted', { messageId: message.id, burned: true });
-        }
-      }, burnAfter * 1000);
-    }
+    scheduleBurn(chatId, message.id, burnAfter);
 
     // Push уведомления — FCM + Web Push + SMS fallback для оффлайн
     const pushBody = enc ? '🔒 Зашифрованное сообщение'
@@ -1007,7 +1024,7 @@ io.on('connection', (socket) => {
   // ── Offline queue flush ─────────────────────────────────────────────────────
   socket.on('flush_queue', ({ messages }) => {
     if (!Array.isArray(messages)) return;
-    for (const { chatId, text, file, sticker, voice, replyTo, clientId } of messages) {
+    for (const { chatId, text, file, sticker, voice, replyTo, clientId, burnAfter } of messages) {
       if (!Chats.isMember(chatId, userId)) continue;
       if (clientId && Messages.getByClientId(clientId)) continue; // deduplicate
       const msg = Messages.create({
@@ -1015,10 +1032,13 @@ io.on('connection', (socket) => {
         clientId: clientId || null,
         chatId, senderId: userId, senderName: socket.user.username,
         text: text || null, file: file || null, voice: voice || null, sticker: sticker || null,
-        forwardOf: null, replyTo: null, reactions: [], edited: false, deleted: false,
-        createdAt: new Date().toISOString(), readBy: [userId]
+        forwardOf: null, replyTo: buildReplySnippet(replyTo), reactions: [], edited: false, deleted: false,
+        createdAt: new Date().toISOString(), readBy: [userId],
+        burnAfter: burnAfter || null,
+        burnAt: burnAfter ? new Date(Date.now() + burnAfter * 1000).toISOString() : null
       });
       io.to(chatId).emit('new_message', msg);
+      scheduleBurn(chatId, msg.id, burnAfter);
     }
     socket.emit('queue_flushed', { ok: true });
   });

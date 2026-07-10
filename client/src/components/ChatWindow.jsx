@@ -130,6 +130,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     setShowMedia(false); setShowScheduled(false);
     setSelectMode(false); setSelectedIds(new Set());
     setShowHeaderMenu(false); setShowGroupInfo(false); setShowPrivateInfo(false);
+    setBurnAfter(null); setShowBurnMenu(false);
 
     fetch(`${API_URL}/messages/${chat.id}/pinned`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json()).then(list => setPinnedIds(Array.isArray(list) ? list.map(m => m.id) : [])).catch(() => {});
@@ -210,6 +211,12 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     function onHistoryCleared({ chatId }) {
       if (chatId === chat?.id) { setMessages([]); setPinnedMessageId(null); }
     }
+    function onMessagesRead({ chatId, userId }) {
+      if (chatId !== chat?.id) return;
+      setMessages(prev => prev.map(m =>
+        m.readBy?.includes(userId) ? m : { ...m, readBy: [...(m.readBy || []), userId] }
+      ));
+    }
 
     socket.on('new_message', onMessage);
     socket.on('history_cleared', onHistoryCleared);
@@ -220,6 +227,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     socket.on('chat_pinned', onPinned);
     socket.on('typing', onTyping);
     socket.on('stop_typing', onStopTyping);
+    socket.on('messages_read', onMessagesRead);
     return () => {
       socket.off('new_message', onMessage);
       socket.off('history_cleared', onHistoryCleared);
@@ -230,6 +238,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
       socket.off('chat_pinned', onPinned);
       socket.off('typing', onTyping);
       socket.off('stop_typing', onStopTyping);
+      socket.off('messages_read', onMessagesRead);
     };
   }, [socket, chat?.id]);
 
@@ -459,7 +468,11 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
       };
       setMessages(prev => [...prev, optimistic]);
     } else {
-      socket?.emit('send_message', payload);
+      socket?.emit('send_message', payload, (res) => {
+        if (res && res.ok === false && res.error === 'blocked') {
+          showAlert('Сообщение не доставлено: пользователь ограничил переписку');
+        }
+      });
     }
 
     setText(''); setFileToSend(null); setReplyingTo(null);
@@ -550,8 +563,24 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     onDelete: () => { closeInfo(); handleDeleteChat(); },
   };
 
-  function sendForward(targetChatId) {
+  async function sendForward(targetChatId) {
     if (!socket || !forwardingMsg) return;
+    const targetChat = (chats || []).find(c => c.id === targetChatId);
+
+    // Секретный чат — как и при обычной отправке, поддерживается только текст,
+    // и его нужно зашифровать на устройстве, а не пересылать как есть.
+    if (targetChat?.type === 'secret') {
+      if (!forwardingMsg.text) { showAlert('В секретных чатах поддерживается только текст'); return; }
+      const otherId = targetChat.members?.find(id => id !== currentUser.id);
+      if (!otherId) return;
+      let cipher;
+      try { cipher = await encryptFor(otherId, token, forwardingMsg.text); }
+      catch { showAlert('Не удалось зашифровать — у собеседника нет ключа (пусть зайдёт в приложение)'); return; }
+      socket.emit('send_message', { chatId: targetChatId, text: cipher, enc: true, forwardOf: { senderName: forwardingMsg.senderName } });
+      setForwardingMsg(null);
+      return;
+    }
+
     socket.emit('send_message', {
       chatId: targetChatId,
       text: forwardingMsg.text || null,
