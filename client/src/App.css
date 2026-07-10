@@ -16,6 +16,7 @@
   --text-muted: #49575f;
   --border: #1a242f;
   --msg-out: #0f2f2a;
+  --msg-out-2: #123e36;
   --msg-in: #151d28;
   --danger: #ff5a5a;
   --online: #00e5c0;
@@ -40,6 +41,7 @@
   --text-muted: #93a39d;
   --border: #e0e6e4;
   --msg-out: #d2f5ee;
+  --msg-out-2: #a8e8d8;
   --msg-in: #ffffff;
   --danger: #e53935;
   --online: #00bf9e;
@@ -129,8 +131,9 @@ body {
   to   { opacity: 1; transform: translateY(0); }
 }
 .burn-mode-banner {
-  background: rgba(255,107,107,0.12); border-top: 1px solid rgba(255,107,107,0.2);
-  color: #ff6b6b; font-size: 12px; font-weight: 600; padding: 5px 16px;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--danger) 20%, transparent);
+  color: var(--danger); font-size: 12px; font-weight: 600; padding: 5px 16px;
   text-align: center; letter-spacing: 0.3px;
   animation: slideUp 0.2s ease;
 }
@@ -295,7 +298,6 @@ body {
   position: relative; overflow: hidden;
 }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
-.avatar.group { background: #6c63d5; }
 .avatar.sm { width: 36px; height: 36px; font-size: 14px; }
 .avatar.lg { width: 72px; height: 72px; font-size: 28px; }
 
@@ -504,7 +506,7 @@ body {
 .msg-footer { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 4px; }
 .msg-time   { font-size: 11px; color: rgba(255,255,255,0.4); }
 .msg-read   { color: rgba(255,255,255,0.4); font-size: 12px; }
-.msg-read.seen { color: #64b5f6; }
+.msg-read.seen { color: var(--accent); }
 
 /* File */
 .msg-file {
@@ -786,9 +788,9 @@ body {
   display: flex; align-items: center; justify-content: center; transition: all 0.15s;
 }
 .call-btn.accept { background: var(--online); color: white; }
-.call-btn.accept:hover { background: #5cba60; transform: scale(1.08); }
+.call-btn.accept:hover { background: color-mix(in srgb, var(--online) 85%, white); transform: scale(1.08); }
 .call-btn.reject, .call-btn.end { background: var(--danger); color: white; }
-.call-btn.reject:hover, .call-btn.end:hover { background: #f04438; transform: scale(1.08); }
+.call-btn.reject:hover, .call-btn.end:hover { background: color-mix(in srgb, var(--danger) 85%, white); transform: scale(1.08); }
 .call-btn.mute, .call-btn.video-toggle { background: rgba(255,255,255,0.12); color: white; }
 .call-btn.mute.active, .call-btn.video-toggle.active { background: rgba(229,57,53,0.3); color: var(--danger); }
 .call-btn.mute:hover, .call-btn.video-toggle:hover { background: rgba(255,255,255,0.2); }
@@ -894,10 +896,10 @@ body {
 }
 
 .msg-out {
-  background: linear-gradient(135deg, var(--msg-out), #123e36);
-  box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+  background: linear-gradient(135deg, var(--msg-out), var(--msg-out-2));
+  box-shadow: 0 2px 10px var(--shadow);
 }
-.msg-in { box-shadow: 0 2px 10px rgba(0,0,0,0.25); }
+.msg-in { box-shadow: 0 2px 10px var(--shadow); }
 
 .unread-badge {
   background: linear-gradient(135deg, var(--accent), var(--accent-hover));
@@ -943,7 +945,7 @@ body {
   to   { opacity: 1; transform: none; }
 }
 
-.burn-timer { font-size: 11px; color: #ff6b6b; margin-right: 4px; font-weight: 600; }
+.burn-timer { font-size: 11px; color: var(--danger); margin-right: 4px; font-weight: 600; }
 .msg-context-item.active { color: var(--accent); }
 
 .sticker-message { display: flex; flex-direction: column; align-items: center; gap: 2px; animation: msgIn 0.18s ease; }
@@ -1580,7 +1582,7 @@ body {
 .msg-image { cursor: zoom-in; }
 
 /* Chat draft indicator */
-.chat-preview-draft { color: #e57373; font-size: 12px; }
+.chat-preview-draft { color: var(--danger); font-size: 12px; }
 
 @media (max-width: 600px) {
   .emoji-picker { width: calc(100vw - 24px); }
@@ -1610,7 +1612,7 @@ body {
 .offline-mode .chat-header::after {
   content: '🔌 Нет связи — сообщения сохраняются';
   display: block; position: absolute; top: 100%; left: 0; right: 0;
-  background: #c62828; color: white; font-size: 11px; text-align: center;
+  background: var(--danger); color: white; font-size: 11px; text-align: center;
   padding: 3px 8px; font-weight: 600; z-index: 10;
 }
 .chat-header { position: relative; }
@@ -1759,7 +1761,7 @@ body {
   background: #111;
 }
 .videonote-error {
-  color: #ff6b6b;
+  color: var(--danger);
   text-align: center;
   font-size: 14px;
   padding: 0 20px;
@@ -2098,16 +2100,16 @@ body {
 
 .group-call-banner {
   display: flex; align-items: center; gap: 10px; padding: 8px 14px;
-  background: rgba(0, 200, 120, 0.12); border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--online) 12%, transparent); border-bottom: 1px solid var(--border);
 }
 .group-call-banner-pulse {
-  width: 10px; height: 10px; border-radius: 50%; background: #2ecc71;
+  width: 10px; height: 10px; border-radius: 50%; background: var(--online);
   animation: gcPulse 1.2s infinite;
 }
 @keyframes gcPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 .group-call-banner-text { flex: 1; font-size: 13px; color: var(--text-primary); }
 .group-call-banner-join {
-  background: #2ecc71; color: #fff; border: none; padding: 6px 14px;
+  background: var(--online); color: #fff; border: none; padding: 6px 14px;
   border-radius: 16px; font-size: 13px; font-weight: 600; cursor: pointer;
 }
 
