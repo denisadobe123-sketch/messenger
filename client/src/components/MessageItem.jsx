@@ -41,6 +41,7 @@ function BurnCountdown({ burnAt }) {
 }
 
 function PollView({ poll, currentUserId, onVote }) {
+  if (!Array.isArray(poll.options)) return null;
   const total = poll.options.reduce((s, o) => s + (o.votes?.length || 0), 0);
   const myVote = poll.options.some(o => o.votes?.includes(currentUserId));
   return (

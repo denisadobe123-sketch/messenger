@@ -98,6 +98,12 @@ CREATE TABLE IF NOT EXISTS blocked (
   PRIMARY KEY (userId, targetId)
 );
 
+CREATE TABLE IF NOT EXISTS muted_chats (
+  userId TEXT NOT NULL,
+  chatId TEXT NOT NULL,
+  PRIMARY KEY (userId, chatId)
+);
+
 CREATE TABLE IF NOT EXISTS stories (
   id        TEXT PRIMARY KEY,
   userId    TEXT NOT NULL,
@@ -225,7 +231,7 @@ const Users = {
   search: (q, excludeId, excludeIds = []) => {
     const rows = db.prepare('SELECT * FROM users').all().map(rowToUser);
     const ql = (q || '').toLowerCase().replace(/^@/, '');
-    return rows.filter(u => {
+    const matches = rows.filter(u => {
       if (u.id === excludeId) return false;
       if (excludeIds.includes(u.id)) return false;
       if (!ql) return true;
@@ -233,6 +239,7 @@ const Users = {
         || (u.displayName || u.username || '').toLowerCase().includes(ql)
         || (u.username || '').toLowerCase().includes(ql);
     });
+    return matches.slice(0, 50); // ограничиваем ответ — раньше рос без предела вместе с базой
   }
 };
 
@@ -248,9 +255,28 @@ const _addMember = db.prepare('INSERT OR IGNORE INTO chat_members (chatId,userId
 
 const Chats = {
   getById: (id) => rowToChat(db.prepare('SELECT * FROM chats WHERE id=?').get(id)),
+  // Раньше делал 1 запрос на список id + по 2 запроса (чат + участники) на каждый чат.
+  // Теперь — фиксированные 3 запроса независимо от количества чатов. Вызывается на
+  // каждую загрузку списка чатов и на каждое переподключение сокета.
   forUser: (userId) => {
     const ids = db.prepare('SELECT chatId FROM chat_members WHERE userId=?').all(userId).map(r => r.chatId);
-    return ids.map(id => Chats.getById(id)).filter(Boolean);
+    if (!ids.length) return [];
+    const placeholders = ids.map(() => '?').join(',');
+    const chatRows = db.prepare(`SELECT * FROM chats WHERE id IN (${placeholders})`).all(...ids);
+    const memberRows = db.prepare(`SELECT chatId, userId FROM chat_members WHERE chatId IN (${placeholders})`).all(...ids);
+    const membersByChat = new Map();
+    for (const { chatId, userId: uid } of memberRows) {
+      if (!membersByChat.has(chatId)) membersByChat.set(chatId, []);
+      membersByChat.get(chatId).push(uid);
+    }
+    const rowById = new Map(chatRows.map(r => [r.id, r]));
+    return ids.map(id => {
+      const r = rowById.get(id);
+      if (!r) return null;
+      return { id: r.id, type: r.type, name: r.name, members: membersByChat.get(id) || [],
+        createdBy: r.createdBy, createdAt: r.createdAt, pinnedMessageId: r.pinnedMessageId,
+        ...(P(r.extra) || {}) };
+    }).filter(Boolean);
   },
   isMember: (chatId, userId) =>
     !!db.prepare('SELECT 1 FROM chat_members WHERE chatId=? AND userId=?').get(chatId, userId),
@@ -379,7 +405,7 @@ const Messages = {
   searchInChat: (chatId, q) => {
     const like = `%${q.toLowerCase()}%`;
     return db.prepare(`SELECT * FROM messages WHERE chatId=? AND deleted=0 AND scheduledAt IS NULL
-      AND lower(text) LIKE ? ORDER BY createdAt DESC`).all(chatId, like).map(r => rowToMessage(r));
+      AND lower(text) LIKE ? ORDER BY createdAt DESC LIMIT 100`).all(chatId, like).map(r => rowToMessage(r));
   },
   // Глобальный поиск по всем чатам пользователя
   searchForUser: (userId, q, limit = 100) => {
@@ -413,6 +439,17 @@ const Blocked = {
     db.prepare('DELETE FROM blocked WHERE userId=? AND targetId=?').run(userId, targetId),
   list: (userId) =>
     db.prepare('SELECT targetId FROM blocked WHERE userId=?').all(userId).map(r => r.targetId)
+};
+
+const Muted = {
+  isMuted: (userId, chatId) =>
+    !!db.prepare('SELECT 1 FROM muted_chats WHERE userId=? AND chatId=?').get(userId, chatId),
+  mute: (userId, chatId) =>
+    db.prepare('INSERT OR IGNORE INTO muted_chats (userId,chatId) VALUES (?,?)').run(userId, chatId),
+  unmute: (userId, chatId) =>
+    db.prepare('DELETE FROM muted_chats WHERE userId=? AND chatId=?').run(userId, chatId),
+  list: (userId) =>
+    db.prepare('SELECT chatId FROM muted_chats WHERE userId=?').all(userId).map(r => r.chatId)
 };
 
 // ── Stories ───────────────────────────────────────────────────────────────────
@@ -476,4 +513,4 @@ function migrateFromJsonIfNeeded() {
 }
 migrateFromJsonIfNeeded();
 
-module.exports = { db, Users, Chats, Messages, Blocked, Stories };
+module.exports = { db, Users, Chats, Messages, Blocked, Muted, Stories };

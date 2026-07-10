@@ -70,13 +70,21 @@ export default function App() {
   const mutedRef = useRef(mutedChats);
 
   function toggleMute(chatId) {
+    let nowMuted = false;
     setMutedChats(prev => {
       const n = new Set(prev);
-      n.has(chatId) ? n.delete(chatId) : n.add(chatId);
+      nowMuted = !n.has(chatId);
+      nowMuted ? n.add(chatId) : n.delete(chatId);
       localStorage.setItem('mutedChats', JSON.stringify([...n]));
       mutedRef.current = n;
       return n;
     });
+    // Раньше мьют жил только в localStorage — сервер ничего не знал о нём
+    // и всё равно слал пуш-уведомления для "заглушённых" чатов. Синхронизируем.
+    fetch(`${API_URL}/chats/${chatId}/mute`, {
+      method: nowMuted ? 'POST' : 'DELETE',
+      headers: { Authorization: `Bearer ${token}` }
+    }).catch(() => {});
   }
 
   function pushToast(toast) {
@@ -253,6 +261,18 @@ export default function App() {
     });
 
     loadChats(token);
+
+    // Подтягиваем мьют с сервера — источник истины для пушей, localStorage
+    // используется только для мгновенного отклика UI и офлайн-доступа.
+    fetch(`${API_URL}/muted`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(ids => {
+        if (!Array.isArray(ids)) return;
+        const n = new Set(ids);
+        setMutedChats(n);
+        mutedRef.current = n;
+        localStorage.setItem('mutedChats', JSON.stringify(ids));
+      }).catch(() => {});
 
     return () => { disconnectSocket(); };
   }, [user?.id]);

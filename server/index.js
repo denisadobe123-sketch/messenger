@@ -9,7 +9,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const webpush = require('web-push');
-const { db, Users, Chats, Messages, Blocked, Stories } = require('./db');
+const { db, Users, Chats, Messages, Blocked, Muted, Stories } = require('./db');
 
 // Email OTP via EmailJS REST API
 const EMAILJS_SERVICE_ID  = process.env.EMAILJS_SERVICE_ID  || 'service_9db449v';
@@ -43,7 +43,15 @@ async function sendOtpEmail(toEmail, code) {
 // SMS fallback — disabled (no provider configured)
 async function sendSMS(toPhone, body) { return false; }
 
-const JWT_SECRET = process.env.JWT_SECRET || 'messenger_secret_2024';
+// Без JWT_SECRET в окружении генерируем случайный секрет при старте вместо
+// захардкоженного значения — иначе любой, кто видел исходники, мог бы
+// подписать токен от имени любого пользователя без входа в систему.
+// Побочный эффект: без переменной окружения все сессии слетают при рестарте сервера.
+if (!process.env.JWT_SECRET) {
+  console.warn('[WARN] JWT_SECRET не задан в окружении — используется случайный секрет на этот запуск сервера (все сессии будут сброшены при рестарте). Задайте JWT_SECRET в переменных окружения для стабильных сессий.');
+}
+const JWT_SECRET = process.env.JWT_SECRET || require('crypto').randomBytes(48).toString('hex');
+const TOKEN_TTL = '90d';
 const PORT = process.env.PORT || 80;
 const FCM_SERVER_KEY = process.env.FCM_SERVER_KEY || null;
 const APP_VERSION = process.env.APP_VERSION || '1.0.0';
@@ -84,6 +92,19 @@ function savePushSubs(data) {
 
 // Rate limiting: ip -> { count, resetAt }
 const registerAttempts = new Map();
+const loginAttempts = new Map();
+// Пароль в /login проверяется bcrypt.compare без ограничений — без лимитера
+// это неограниченный брутфорс любого аккаунта.
+function loginLimiter(req, res, next) {
+  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip;
+  const now = Date.now();
+  const att = loginAttempts.get(ip) || { count: 0, resetAt: now + 3600000 };
+  if (now > att.resetAt) { att.count = 0; att.resetAt = now + 3600000; }
+  att.count++;
+  loginAttempts.set(ip, att);
+  if (att.count > 20) return res.status(429).json({ error: 'Слишком много попыток. Попробуй через час.' });
+  next();
+}
 
 // OTP storage: otpToken -> { phone, code, expiresAt, attempts }
 const otpStore = new Map();
@@ -147,6 +168,9 @@ app.use((req, res, next) => {
 });
 app.use('/uploads', (req, res, next) => {
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  // Запрещаем браузеру угадывать тип файла по содержимому — без этого
+  // .html/.svg с валидным-на-вид расширением мог бы исполниться как страница.
+  res.setHeader('X-Content-Type-Options', 'nosniff');
   next();
 }, express.static(UPLOADS_DIR));
 
@@ -161,8 +185,11 @@ const upload = multer({
   storage,
   limits: { fileSize: 100 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    // Block dangerous executables
-    const blocked = ['.exe', '.bat', '.cmd', '.sh', '.ps1', '.msi', '.apk'];
+    // Блокируем исполняемые файлы и типы, которые браузер может отрендерить как
+    // активный документ (html/svg могут содержать <script> и исполняются при
+    // прямом открытии ссылки на /uploads/...).
+    const blocked = ['.exe', '.bat', '.cmd', '.sh', '.ps1', '.msi', '.apk',
+      '.html', '.htm', '.svg', '.xhtml', '.shtml', '.js', '.mjs'];
     const ext = path.extname(file.originalname).toLowerCase();
     if (blocked.includes(ext)) return cb(new Error('Этот тип файла запрещён'));
     cb(null, true);
@@ -325,18 +352,18 @@ app.post('/auth/verify-otp', async (req, res) => {
     return res.json({ need2fa: true, tempToken, hint: user.twoFactorHint || null });
   }
 
-  const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET);
+  const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: TOKEN_TTL });
   res.json({ token, user: safeUser(user, true) });
 });
 
 // Legacy login with password (kept for existing accounts)
-app.post('/login', async (req, res) => {
+app.post('/login', loginLimiter, async (req, res) => {
   const { username, password } = req.body;
   const user = Users.getByUsername(username || '');
   if (!user) return res.status(400).json({ error: 'Пользователь не найден' });
   if (!user.password) return res.status(400).json({ error: 'Используй вход по номеру телефона' });
   if (!await bcrypt.compare(password, user.password)) return res.status(400).json({ error: 'Неверный пароль' });
-  const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET);
+  const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: TOKEN_TTL });
   res.json({ token, user: safeUser(user) });
 });
 
@@ -392,7 +419,7 @@ app.post('/auth/verify-2fa', async (req, res) => {
   const u = Users.getById(payload.id);
   if (!u?.twoFactor) return res.status(400).json({ error: 'Не найден' });
   if (!await bcrypt.compare(password, u.twoFactor)) return res.status(400).json({ error: 'Неверный пароль' });
-  const token = jwt.sign({ id: u.id, username: u.username }, JWT_SECRET);
+  const token = jwt.sign({ id: u.id, username: u.username }, JWT_SECRET, { expiresIn: TOKEN_TTL });
   res.json({ token, user: safeUser(u, true) });
 });
 
@@ -428,9 +455,9 @@ app.put('/profile', authMiddleware, (req, res) => {
   if (!user) return res.status(404).json({ error: 'Не найден' });
   const { bio, status, displayName, handle, phone } = req.body;
   const patch = {};
-  if (bio !== undefined) patch.bio = bio;
+  if (bio !== undefined) patch.bio = bio.slice(0, 500);
   if (status !== undefined) patch.status = status;
-  if (displayName !== undefined) patch.displayName = displayName.trim() || user.displayName;
+  if (displayName !== undefined) patch.displayName = displayName.trim().slice(0, 64) || user.displayName;
   if (phone !== undefined) patch.phone = phone ? phone.trim() : null;
   if (handle !== undefined) {
     const clean = handle.replace(/^@/, '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 32);
@@ -449,12 +476,21 @@ app.get('/avatar/:userId', (req, res) => {
   if (!user?.avatarData) return res.status(404).send('Not found');
   const buf = Buffer.from(user.avatarData.data, 'base64');
   res.set('Content-Type', user.avatarData.mime || 'image/jpeg');
+  res.set('X-Content-Type-Options', 'nosniff');
   res.set('Cache-Control', 'public,max-age=86400');
   res.send(buf);
 });
 
+const ALLOWED_AVATAR_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 app.post('/profile/avatar', authMiddleware, upload.single('avatar'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
+  // Тип файла аватара берётся из заголовка запроса клиента и раньше сохранялся
+  // без проверки — можно было выдать HTML/SVG за "аватар" и получить исполняемую
+  // страницу на публичной неавторизованной ссылке /avatar/:userId.
+  if (!ALLOWED_AVATAR_MIME.includes(req.file.mimetype)) {
+    try { fs.unlinkSync(req.file.path); } catch {}
+    return res.status(400).json({ error: 'Разрешены только изображения (JPEG, PNG, WEBP, GIF)' });
+  }
   const user = Users.getById(req.user.id);
   if (!user) return res.status(404).json({ error: 'Не найден' });
   let updated;
@@ -531,6 +567,22 @@ app.delete('/block/:targetId', authMiddleware, (req, res) => {
 app.get('/blocked', authMiddleware, (req, res) => {
   const ids = Blocked.list(req.user.id);
   res.json(ids.map(id => Users.getById(id)).filter(Boolean).map(safeUser));
+});
+
+// ── Mute / Unmute (раньше хранилось только в localStorage — пуши всё равно
+// приходили для "заглушённых" чатов, потому что сервер вообще не знал о мьюте) ─
+app.post('/chats/:chatId/mute', authMiddleware, (req, res) => {
+  Muted.mute(req.user.id, req.params.chatId);
+  res.json({ ok: true });
+});
+
+app.delete('/chats/:chatId/mute', authMiddleware, (req, res) => {
+  Muted.unmute(req.user.id, req.params.chatId);
+  res.json({ ok: true });
+});
+
+app.get('/muted', authMiddleware, (req, res) => {
+  res.json(Muted.list(req.user.id));
 });
 
 // ── Web Push (VAPID) ──────────────────────────────────────────────────────────
@@ -708,10 +760,10 @@ app.post('/messages/queued', authMiddleware, async (req, res) => {
   });
   io.to(chatId).emit('new_message', message);
   scheduleBurn(chatId, message.id, burnAfter);
-  // Notify offline members
+  // Notify offline members (параллельно — иначе задержка ответа растёт линейно с размером группы)
   const pushBody = sticker || text || (voice ? '🎤 Голосовое' : '📎 Файл');
-  for (const memberId of chat.members) {
-    if (memberId === req.user.id) continue;
+  await Promise.all(chat.members.map(async memberId => {
+    if (memberId === req.user.id || Muted.isMuted(memberId, chatId)) return;
     const offline = !isOnline(memberId);
     if (offline) sendPushToUser(memberId, senderName, pushBody);
     const webPushSent = await sendWebPush(memberId, { title: senderName, body: pushBody, chatId, icon: sender?.avatar || '/icon-192.png' });
@@ -719,7 +771,7 @@ app.post('/messages/queued', authMiddleware, async (req, res) => {
       const member = Users.getById(memberId);
       if (member?.phone) sendSMS(member.phone, `💬 ${senderName}: ${pushBody}`);
     }
-  }
+  }));
   res.json({ ok: true, messageId: message.id });
 });
 
@@ -825,6 +877,18 @@ io.on('connection', (socket) => {
       }
     }
 
+    // Без проверки формы poll произвольный клиент мог прислать { options: null }
+    // и уронить рендер этого сообщения у всех участников чата навсегда.
+    if (poll && (!poll.question || !Array.isArray(poll.options) || poll.options.length < 2
+        || poll.options.some(o => typeof o?.text !== 'string' || !o.text.trim()))) {
+      if (typeof ack === 'function') ack({ ok: false, error: 'invalid_poll' });
+      return;
+    }
+    if (typeof text === 'string' && text.length > 8000) {
+      if (typeof ack === 'function') ack({ ok: false, error: 'text_too_long' });
+      return;
+    }
+
     // Запланированное сообщение в будущее — сохраняем, но не рассылаем сейчас
     const sched = scheduledAt && new Date(scheduledAt) > new Date() ? new Date(scheduledAt).toISOString() : null;
 
@@ -850,9 +914,10 @@ io.on('connection', (socket) => {
       : sticker || text || (voice ? '🎤 Голосовое' : poll ? '📊 Опрос' : location ? '📍 Геолокация' : '📎 Файл');
     const sender = Users.getById(userId);
     const senderName = sender?.displayName || sender?.username || socket.user.username;
-    for (const memberId of chat.members) {
-      if (memberId === userId) continue;
-      if (Blocked.isBlocked(memberId, userId)) continue;
+    await Promise.all(chat.members.map(async memberId => {
+      if (memberId === userId) return;
+      if (Blocked.isBlocked(memberId, userId)) return;
+      if (Muted.isMuted(memberId, chatId)) return;
       const offline = !isOnline(memberId);
       if (offline) sendPushToUser(memberId, senderName, pushBody);
       const webPushSent = await sendWebPush(memberId, { title: senderName, body: pushBody, chatId, icon: sender?.avatar || '/icon-192.png' });
@@ -861,7 +926,7 @@ io.on('connection', (socket) => {
         const member = Users.getById(memberId);
         if (member?.phone) sendSMS(member.phone, `💬 ${senderName}: ${pushBody}`);
       }
-    }
+    }));
   });
 
   socket.on('edit_message', ({ messageId, text, entities }) => {
@@ -953,7 +1018,8 @@ io.on('connection', (socket) => {
   socket.on('rename_chat', ({ chatId, name }) => {
     const chat = Chats.getById(chatId);
     if (!chat || chat.type !== 'group' || !chat.members.includes(userId) || !name?.trim()) return;
-    const updated = Chats.update(chatId, { name: name.trim() });
+    if (userId !== chat.createdBy) return; // переименовывать может только создатель — как и удаление участников
+    const updated = Chats.update(chatId, { name: name.trim().slice(0, 64) });
     io.to(chatId).emit('chat_updated', updated);
     pushSystemMessage(chatId, `${socket.user.username} переименовал(а) группу в «${updated.name}»`);
   });
@@ -1003,7 +1069,12 @@ io.on('connection', (socket) => {
 
   socket.on('set_status', ({ status }) => {
     Users.update(userId, { status });
-    io.emit('user_status_detail', { userId, status });
+    // Статус (🟢/🟡/🔴) — та же информация о присутствии, что и last-seen,
+    // поэтому уважаем ту же настройку приватности, а не шлём всем подряд.
+    const pol = (Users.getById(userId)?.privacy?.lastSeen) || 'everyone';
+    const payload = { userId, status };
+    if (pol === 'everyone') io.emit('user_status_detail', payload);
+    else if (pol === 'contacts') for (const cid of contactIds(userId)) emitToUser(cid, 'user_status_detail', payload);
   });
 
   socket.on('read_messages', ({ chatId }) => {
@@ -1230,12 +1301,13 @@ async function dispatchScheduled() {
     const sender = Users.getById(m.senderId);
     const senderName = sender?.displayName || sender?.username || 'Сообщение';
     const pushBody = m.sticker || m.text || (m.voice ? '🎤 Голосовое' : '📎 Файл');
-    for (const memberId of chat.members) {
-      if (memberId === m.senderId) continue;
-      if (Blocked.isBlocked(memberId, m.senderId)) continue;
+    await Promise.all(chat.members.map(async memberId => {
+      if (memberId === m.senderId) return;
+      if (Blocked.isBlocked(memberId, m.senderId)) return;
+      if (Muted.isMuted(memberId, m.chatId)) return;
       if (!isOnline(memberId)) sendPushToUser(memberId, senderName, pushBody);
       await sendWebPush(memberId, { title: senderName, body: pushBody, chatId: m.chatId, icon: sender?.avatar || '/icon-192.png' });
-    }
+    }));
   }
 }
 setInterval(() => { dispatchScheduled().catch(e => console.error('scheduler:', e.message)); }, 15000);
