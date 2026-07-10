@@ -19,6 +19,7 @@ export default function GroupCallModal({ chat, currentUser, socket, callType, on
   const [muted, setMuted] = useState(false);
   const [videoOff, setVideoOff] = useState(false);
   const [duration, setDuration] = useState(0);
+  const [mediaErr, setMediaErr] = useState('');
 
   const localStreamRef = useRef(null);
   const pcsRef = useRef(new Map());        // userId -> RTCPeerConnection
