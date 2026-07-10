@@ -1,4 +1,4 @@
-package com.messenger.app;
+package com.nexora.messenger;
 
 import android.Manifest;
 import android.os.Bundle;
