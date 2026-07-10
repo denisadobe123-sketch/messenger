@@ -19,3 +19,6 @@ Messenger-App-clean/
 Messenger-App.zip
 client/android/app/build/
 client/android/.gradle/
+client/android/key.properties
+nexora.keystore
+nexora_keystore_password.txt
