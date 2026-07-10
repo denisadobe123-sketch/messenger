@@ -363,6 +363,8 @@ body {
 
 .modal-members { max-height: 200px; overflow-y: auto; margin-bottom: 16px; border-radius: 12px; background: var(--bg-primary); }
 .modal-actions { display: flex; gap: 10px; margin-top: 4px; }
+.confirm-modal { max-width: 340px; }
+.confirm-modal-text { font-size: 15px; line-height: 1.4; margin: 4px 0 18px; }
 
 .btn {
   flex: 1; padding: 11px; border: none; border-radius: 12px;

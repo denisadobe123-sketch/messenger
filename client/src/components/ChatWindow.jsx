@@ -9,6 +9,7 @@ import { tap } from '../native.js';
 import { enqueue } from '../offlineQueue.js';
 import { encryptFor, decryptFrom } from '../e2e.js';
 import { getAvatarColor } from '../avatarColor.js';
+import ConfirmDialog from './ConfirmDialog.jsx';
 
 const DRAFTS_KEY = 'chat_drafts';
 
@@ -88,6 +89,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   const [showVideoRecorder, setShowVideoRecorder] = useState(false);
   const [lightboxImg, setLightboxImg] = useState(null);
   const [sendError, setSendError] = useState('');
+  const [confirmDialog, setConfirmDialog] = useState(null); // { message, onConfirm }
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [unreadBelow, setUnreadBelow] = useState(0);
   const messagesWrapRef = useRef(null);
@@ -384,6 +386,9 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     typingTimeout.current = setTimeout(() => socket.emit('stop_typing', { chatId: chat.id }), 2000);
   }
 
+  function showAlert(msg) { setSendError(msg); setTimeout(() => setSendError(''), 3000); }
+  function askConfirm(message, onConfirm) { setConfirmDialog({ message, onConfirm }); }
+
   async function send(scheduledAt = null) {
     if (editingMsg) {
       if (!text.trim()) return;
@@ -399,11 +404,11 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
 
     // Секретный чат — шифруем текст на устройстве (E2E), файлы/голос не поддерживаются
     if (isSecret) {
-      if (!text.trim()) { alert('В секретных чатах поддерживается только текст'); return; }
+      if (!text.trim()) { showAlert('В секретных чатах поддерживается только текст'); return; }
       if (!otherId) return;
       let cipher;
       try { cipher = await encryptFor(otherId, token, text.trim()); }
-      catch { alert('Не удалось зашифровать — у собеседника нет ключа (пусть зайдёт в приложение)'); return; }
+      catch { showAlert('Не удалось зашифровать — у собеседника нет ключа (пусть зайдёт в приложение)'); return; }
       socket.emit('send_message', { chatId: chat.id, text: cipher, enc: true, replyTo: replyingTo?.id || null, burnAfter: burnAfter || null });
       tap('light');
       setText(''); setReplyingTo(null);
@@ -499,16 +504,16 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
 
   function shareLocation() {
     setShowAttachMenu(false);
-    if (!navigator.geolocation) { alert('Геолокация не поддерживается'); return; }
+    if (!navigator.geolocation) { showAlert('Геолокация не поддерживается'); return; }
     navigator.geolocation.getCurrentPosition(
       pos => socket?.emit('send_message', { chatId: chat.id, location: { lat: +pos.coords.latitude.toFixed(6), lng: +pos.coords.longitude.toFixed(6) } }),
-      () => alert('Не удалось получить геолокацию'),
+      () => showAlert('Не удалось получить геолокацию'),
       { enableHighAccuracy: true, timeout: 10000 }
     );
   }
   function handleReply(msg) { setEditingMsg(null); setReplyingTo(msg); }
   function handleEdit(msg) { setReplyingTo(null); setEditingMsg(msg); setText(msg.text || ''); }
-  function handleDelete(messageId) { if (confirm('Удалить сообщение?')) socket?.emit('delete_message', { messageId }); }
+  function handleDelete(messageId) { askConfirm('Удалить сообщение?', () => { socket?.emit('delete_message', { messageId }); setConfirmDialog(null); }); }
   function handlePin(messageId) { socket?.emit('pin_message', { chatId: chat.id, messageId }); }
   function handleUnpin(messageId) { socket?.emit('unpin_message', { chatId: chat.id, messageId }); }
 
@@ -517,7 +522,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
       .then(r => r.json()).then(list => setScheduledList(Array.isArray(list) ? list : [])).catch(() => {});
   }
   function openSchedule() {
-    if (!text.trim() && !fileToSend) { alert('Сначала напиши сообщение'); return; }
+    if (!text.trim() && !fileToSend) { showAlert('Сначала напиши сообщение'); return; }
     const d = new Date(Date.now() + 3600000);
     d.setSeconds(0, 0);
     // Формат для datetime-local: YYYY-MM-DDTHH:mm в локальном времени
@@ -527,7 +532,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   }
   function confirmSchedule() {
     const when = new Date(scheduleValue);
-    if (isNaN(when) || when <= new Date()) { alert('Выбери время в будущем'); return; }
+    if (isNaN(when) || when <= new Date()) { showAlert('Выбери время в будущем'); return; }
     send(when.toISOString());
     setShowScheduleModal(false);
   }
@@ -607,37 +612,39 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   }
   function deleteSelected() {
     if (!selectedIds.size) return;
-    if (!confirm(`Удалить ${selectedIds.size} сообщений?`)) return;
-    selectedIds.forEach(id => {
-      const msg = messages.find(m => m.id === id);
-      if (msg && msg.senderId === currentUser.id) socket?.emit('delete_message', { messageId: id });
+    askConfirm(`Удалить ${selectedIds.size} сообщений?`, () => {
+      selectedIds.forEach(id => {
+        const msg = messages.find(m => m.id === id);
+        if (msg && msg.senderId === currentUser.id) socket?.emit('delete_message', { messageId: id });
+      });
+      setSelectMode(false); setSelectedIds(new Set());
+      setConfirmDialog(null);
     });
-    setSelectMode(false); setSelectedIds(new Set());
   }
 
   // ── Управление чатом / группой ───────────────────────────────────────────
   function handleDeleteChat() {
     setShowHeaderMenu(false);
     const label = chat.type === 'group' ? 'Удалить группу для всех?' : 'Удалить чат и всю переписку?';
-    if (!confirm(label)) return;
-    socket?.emit('delete_chat', { chatId: chat.id });
+    askConfirm(label, () => { socket?.emit('delete_chat', { chatId: chat.id }); setConfirmDialog(null); });
   }
   function handleClearHistory() {
     setShowHeaderMenu(false);
-    if (!confirm('Очистить всю историю сообщений?')) return;
-    socket?.emit('clear_history', { chatId: chat.id });
+    askConfirm('Очистить всю историю сообщений?', () => { socket?.emit('clear_history', { chatId: chat.id }); setConfirmDialog(null); });
   }
   async function handleToggleBlock() {
     setShowHeaderMenu(false);
     if (!otherId) return;
     const method = isBlocked ? 'DELETE' : 'POST';
-    await fetch(`${API_URL}/block/${otherId}`, { method, headers: { Authorization: `Bearer ${token}` } });
-    setIsBlocked(p => !p);
+    try {
+      const res = await fetch(`${API_URL}/block/${otherId}`, { method, headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error();
+      setIsBlocked(p => !p);
+    } catch { showAlert('Не удалось выполнить действие — попробуй ещё раз'); }
   }
   function handleLeaveGroup() {
     setShowGroupInfo(false);
-    if (!confirm('Выйти из группы?')) return;
-    socket?.emit('leave_chat', { chatId: chat.id });
+    askConfirm('Выйти из группы?', () => { socket?.emit('leave_chat', { chatId: chat.id }); setConfirmDialog(null); });
   }
   function handleRenameGroup(name) {
     if (name?.trim() && name.trim() !== chat.name) socket?.emit('rename_chat', { chatId: chat.id, name: name.trim() });
@@ -646,7 +653,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     if (userIds?.length) socket?.emit('add_members', { chatId: chat.id, userIds });
   }
   function handleRemoveMember(userId) {
-    if (confirm('Удалить участника из группы?')) socket?.emit('remove_member', { chatId: chat.id, userId });
+    askConfirm('Удалить участника из группы?', () => { socket?.emit('remove_member', { chatId: chat.id, userId }); setConfirmDialog(null); });
   }
 
   function scrollToMessage(messageId) {
@@ -683,7 +690,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
 
   async function startRecording() {
     if (typeof MediaRecorder === 'undefined') {
-      alert('Запись не поддерживается в этом браузере');
+      showAlert('Запись не поддерживается в этом браузере');
       return;
     }
     try {
@@ -700,7 +707,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
       setRecording(true); setRecordTime(0);
       recordIntervalRef.current = setInterval(() => setRecordTime(t => t + 1), 1000);
     } catch {
-      alert('Нет доступа к микрофону');
+      showAlert('Нет доступа к микрофону');
     }
   }
 
@@ -1261,6 +1268,14 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
           actions={chatActions}
         />
       )}
+
+      {confirmDialog && (
+        <ConfirmDialog
+          message={confirmDialog.message}
+          onConfirm={confirmDialog.onConfirm}
+          onCancel={() => setConfirmDialog(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1324,6 +1339,7 @@ function PollComposer({ onCreate, onClose }) {
   const [question, setQuestion] = useState('');
   const [options, setOptions] = useState(['', '']);
   const [multi, setMulti] = useState(false);
+  const [err, setErr] = useState('');
 
   function setOpt(i, v) { setOptions(prev => prev.map((o, idx) => idx === i ? v : o)); }
   function addOpt() { if (options.length < 10) setOptions(prev => [...prev, '']); }
@@ -1331,7 +1347,11 @@ function PollComposer({ onCreate, onClose }) {
 
   function create() {
     const opts = options.map(o => o.trim()).filter(Boolean);
-    if (!question.trim() || opts.length < 2) { alert('Нужен вопрос и минимум 2 варианта'); return; }
+    if (!question.trim() || opts.length < 2) {
+      setErr('Нужен вопрос и минимум 2 варианта');
+      setTimeout(() => setErr(''), 3000);
+      return;
+    }
     onCreate({ question: question.trim(), multi, public: true, options: opts.map(text => ({ text, votes: [] })) });
   }
 
@@ -1351,6 +1371,7 @@ function PollComposer({ onCreate, onClose }) {
           <input type="checkbox" checked={multi} onChange={e => setMulti(e.target.checked)} />
           <span>Несколько ответов</span>
         </label>
+        {err && <div className="error-msg" style={{ marginBottom: 10 }}>{err}</div>}
         <div className="modal-actions">
           <button className="btn btn-secondary" onClick={onClose}>Отмена</button>
           <button className="btn btn-primary" onClick={create}>Создать</button>

@@ -26,8 +26,11 @@ export default function ProfilePage({ user, token, onUpdate, onLogout }) {
   }, [token]);
 
   async function unblock(userId) {
-    await fetch(`${API_URL}/block/${userId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
-    setBlockedUsers(prev => prev.filter(u => u.id !== userId));
+    try {
+      const res = await fetch(`${API_URL}/block/${userId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error();
+      setBlockedUsers(prev => prev.filter(u => u.id !== userId));
+    } catch { setErr('Не удалось разблокировать — попробуй ещё раз'); }
   }
 
   function handleToggleTheme() { setTheme(toggleTheme()); }
@@ -229,6 +232,7 @@ export default function ProfilePage({ user, token, onUpdate, onLogout }) {
 
 function PrivacySettings({ token }) {
   const [priv, setPriv] = useState({ lastSeen: 'everyone', calls: 'everyone' });
+  const [err, setErr] = useState('');
   const OPTS = [['everyone', 'Все'], ['contacts', 'Контакты'], ['nobody', 'Никто']];
 
   useEffect(() => {
@@ -236,13 +240,25 @@ function PrivacySettings({ token }) {
       .then(r => r.json()).then(setPriv).catch(() => {});
   }, [token]);
 
-  function update(field, value) {
-    const next = { ...priv, [field]: value };
-    setPriv(next);
-    fetch(`${API_URL}/privacy`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ [field]: value })
-    }).catch(() => {});
+  useEffect(() => {
+    if (!err) return;
+    const t = setTimeout(() => setErr(''), 4000);
+    return () => clearTimeout(t);
+  }, [err]);
+
+  async function update(field, value) {
+    const prev = priv;
+    setPriv({ ...priv, [field]: value });
+    try {
+      const res = await fetch(`${API_URL}/privacy`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ [field]: value })
+      });
+      if (!res.ok) throw new Error();
+    } catch {
+      setPriv(prev);
+      setErr('Не удалось сохранить настройку — попробуй ещё раз');
+    }
   }
 
   return (
@@ -260,6 +276,7 @@ function PrivacySettings({ token }) {
           {OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
       </div>
+      {err && <div className="error-msg">{err}</div>}
     </div>
   );
 }

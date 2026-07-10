@@ -5,6 +5,7 @@ import ChatWindow from './components/ChatWindow.jsx';
 import CallModal from './components/CallModal.jsx';
 import GroupCallModal from './components/GroupCallModal.jsx';
 import Toast from './components/Toast.jsx';
+import ConfirmDialog from './components/ConfirmDialog.jsx';
 import { connectSocket, disconnectSocket, getSocket } from './socket.js';
 import { API_URL } from './api.js';
 import { getTheme, applyTheme } from './theme.js';
@@ -63,6 +64,7 @@ export default function App() {
   });
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [locked, setLocked] = useState(() => hasPasscode() && !isUnlocked());
+  const [confirmDialog, setConfirmDialog] = useState(null); // { message, onConfirm }
   const selectedChatRef = useRef(null);
   const mutedRef = useRef(mutedChats);
 
@@ -259,8 +261,10 @@ export default function App() {
 
   function deleteChat(chat) {
     const label = chat.type === 'group' ? 'Удалить группу для всех?' : 'Удалить чат и всю переписку?';
-    if (!confirm(label)) return;
-    getSocket()?.emit('delete_chat', { chatId: chat.id });
+    setConfirmDialog({
+      message: label,
+      onConfirm: () => { getSocket()?.emit('delete_chat', { chatId: chat.id }); setConfirmDialog(null); }
+    });
   }
 
   function handleSelectChat(chat) {
@@ -355,6 +359,13 @@ export default function App() {
       />
       <NetworkBadge />
       <UpdateChecker />
+      {confirmDialog && (
+        <ConfirmDialog
+          message={confirmDialog.message}
+          onConfirm={confirmDialog.onConfirm}
+          onCancel={() => setConfirmDialog(null)}
+        />
+      )}
     </div>
   );
 }

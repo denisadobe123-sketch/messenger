@@ -42,8 +42,8 @@ export default function GroupCallModal({ chat, currentUser, socket, callType, on
         if (localVideoRef.current) localVideoRef.current.srcObject = stream;
         socket.emit('group_call_join', { chatId });
       } catch {
-        alert('Нет доступа к камере/микрофону');
-        onEnd();
+        setMediaErr('Нет доступа к камере/микрофону');
+        setTimeout(onEnd, 2500);
       }
     })();
 
@@ -156,7 +156,7 @@ export default function GroupCallModal({ chat, currentUser, socket, callType, on
   return (
     <div className="call-overlay">
       <div className="call-status-text" style={{ marginBottom: 12 }}>
-        {chat.displayName || chat.name} · {total} в звонке · {mins}:{secs.toString().padStart(2, '0')}
+        {mediaErr || `${chat.displayName || chat.name} · ${total} в звонке · ${mins}:${secs.toString().padStart(2, '0')}`}
       </div>
       <div className={`group-call-grid tiles-${Math.min(total, 6)}`}>
         <div className="group-call-tile">
