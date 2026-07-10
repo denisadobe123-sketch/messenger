@@ -166,6 +166,14 @@ export function VideoNotePlayer({ url }) {
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState(0);
 
+  // Android WebView (в отличие от десктопного Chrome) не рисует первый кадр
+  // паузнутого <video> без явного poster — показывает серую заглушку.
+  // Микро-перемотка после загрузки метаданных заставляет его отрисовать кадр.
+  function showFirstFrame() {
+    const v = videoRef.current;
+    if (v && v.currentTime === 0) { try { v.currentTime = 0.01; } catch {} }
+  }
+
   function toggle() {
     const v = videoRef.current;
     if (!v) return;
@@ -190,6 +198,7 @@ export function VideoNotePlayer({ url }) {
         webkit-playsinline="true"
         preload="metadata"
         className="videonote-player-video"
+        onLoadedMetadata={showFirstFrame}
         onTimeUpdate={e => {
           const v = e.target;
           if (v.duration) setProgress(v.currentTime / v.duration);

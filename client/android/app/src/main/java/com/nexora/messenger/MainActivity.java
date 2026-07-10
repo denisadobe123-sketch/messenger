@@ -2,12 +2,11 @@ package com.nexora.messenger;
 
 import android.Manifest;
 import android.os.Bundle;
-import android.webkit.PermissionRequest;
-import android.webkit.WebChromeClient;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import android.content.pm.PackageManager;
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.BridgeWebChromeClient;
 
 public class MainActivity extends BridgeActivity {
     @Override
@@ -26,12 +25,12 @@ public class MainActivity extends BridgeActivity {
             ActivityCompat.requestPermissions(this, permissions, 1001);
         }
 
-        // Разрешаем WebView отдавать доступ к камере/микрофону сайту (getUserMedia)
-        this.getBridge().getWebView().setWebChromeClient(new WebChromeClient() {
-            @Override
-            public void onPermissionRequest(final PermissionRequest request) {
-                runOnUiThread(() -> request.grant(request.getResources()));
-            }
-        });
+        // ВАЖНО: используем родной BridgeWebChromeClient Capacitor, а не голый
+        // WebChromeClient. Голый WebChromeClient (как было раньше) не реализует
+        // onShowFileChooser() — из-за этого <input type="file"> НИГДЕ в приложении
+        // не открывал системный пикер файлов (ни аватар, ни история, ни вложения
+        // в чате). BridgeWebChromeClient уже правильно обрабатывает и это, и запрос
+        // разрешений камеры/микрофона для getUserMedia (нужно для звонков).
+        this.getBridge().getWebView().setWebChromeClient(new BridgeWebChromeClient(this.getBridge()));
     }
 }
