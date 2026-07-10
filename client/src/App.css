@@ -2233,3 +2233,20 @@ body {
   from { transform: translateX(28%); opacity: 0.5; }
   to   { transform: translateX(0);   opacity: 1; }
 }
+
+/* На тач-устройствах нет :hover, поэтому кнопки, которые появляются только
+   при наведении, были невидимы и недоступны — реакция на сообщение и меню
+   чата/сообщения не открывались вообще. Показываем их всегда на тач. */
+@media (hover: none) {
+  .reaction-btn, .msg-menu-btn, .chat-item-menu-btn { opacity: 0.55 !important; }
+}
+
+/* ── Crash screen (ErrorBoundary fallback) ───────── */
+.crash-screen {
+  height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 12px; padding: 32px; text-align: center; background: var(--bg-primary); color: var(--text-primary);
+}
+.crash-icon { font-size: 48px; margin-bottom: 8px; }
+.crash-screen h2 { font-size: 20px; margin: 0; }
+.crash-screen p { color: var(--text-secondary); font-size: 14px; margin: 0 0 8px; max-width: 320px; }
+.crash-screen .btn { padding: 12px 28px; font-size: 15px; }
