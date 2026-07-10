@@ -12,6 +12,7 @@ server/_test_data/
 server/_test_cold/
 server/_test*/
 .env
+.env.local
 dist-electron/
 dist-electron2/
 Messenger-App/
