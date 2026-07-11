@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { getAvatarColor } from '../avatarColor.js';
+import { MoreIcon, PinIcon, BellIcon, BellOffIcon, ArchiveIcon, TrashIcon } from '../icons.jsx';
 
 function getInitials(name) { return (name || '?')[0].toUpperCase(); }
 
@@ -93,24 +94,24 @@ export default function ChatItem({
         </div>
         <div className="chat-meta">
           <span className="chat-time">{formatTime(chat.lastMessage?.createdAt || chat.createdAt)}</span>
-          {isMuted && <span className="chat-muted-icon" title="Без звука">🔕</span>}
+          {isMuted && <span className="chat-muted-icon" title="Без звука"><BellOffIcon /></span>}
           {chat.unread > 0 && <span className={`unread-badge ${isMuted ? 'muted' : ''}`}>{chat.unread}</span>}
         </div>
         <div className="chat-item-menu-wrap">
-          <button className="chat-item-menu-btn" onClick={e => { e.stopPropagation(); onToggleMenu(chat.id); }}>⋯</button>
+          <button className="chat-item-menu-btn" onClick={e => { e.stopPropagation(); onToggleMenu(chat.id); }}><MoreIcon /></button>
           {menuOpen && (
             <div className="msg-context-menu chat-item-menu" onClick={e => e.stopPropagation()}>
               <button className="msg-context-item" onClick={() => onTogglePin(chat.id)}>
-                {isPinned ? '📌 Открепить' : '📌 Закрепить'}
+                <PinIcon /> {isPinned ? 'Открепить' : 'Закрепить'}
               </button>
               <button className="msg-context-item" onClick={() => { onToggleMute?.(chat.id); onToggleMenu(chat.id); }}>
-                {isMuted ? '🔔 Включить звук' : '🔕 Без звука'}
+                {isMuted ? <BellIcon /> : <BellOffIcon />} {isMuted ? 'Включить звук' : 'Без звука'}
               </button>
               <button className="msg-context-item" onClick={() => onArchive(chat.id)}>
-                {isArchived ? '📤 Вернуть из архива' : '📥 Архивировать'}
+                <ArchiveIcon /> {isArchived ? 'Вернуть из архива' : 'Архивировать'}
               </button>
               <button className="msg-context-item danger" onClick={() => onDeleteChat?.(chat)}>
-                🗑 Удалить чат
+                <TrashIcon /> Удалить чат
               </button>
             </div>
           )}

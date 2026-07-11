@@ -8,6 +8,10 @@
     <meta name="theme-color" content="#17212b" />
     <meta name="description" content="Быстрый и удобный мессенджер" />
 
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
     <!-- iOS PWA -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -17,8 +21,32 @@
     <!-- Android PWA -->
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!-- Тёмный фон + лого сразу в HTML, без ожидания JS/CSS — иначе на
+         медленном соединении первый кадр белый (браузер по умолчанию),
+         прежде чем подключится App.css. Это отдельный элемент, а НЕ внутри
+         #root, чтобы не сломать проверку самолечения ниже (она считает
+         childElementCount у #root, а не у этого сплэша). Пропадает через
+         window.__appMounted сразу после первого рендера React. -->
+    <style>
+      html, body { background: #0a0e14; }
+      #boot-splash {
+        position: fixed; inset: 0; z-index: 9999;
+        display: flex; align-items: center; justify-content: center;
+        background: #0a0e14;
+      }
+      #boot-splash img {
+        width: 72px; height: 72px; border-radius: 50%;
+        animation: bootPulse 1.4s ease-in-out infinite;
+      }
+      @keyframes bootPulse {
+        0%, 100% { opacity: 0.55; transform: scale(0.92); }
+        50%      { opacity: 1;    transform: scale(1); }
+      }
+    </style>
   </head>
   <body>
+    <div id="boot-splash"><img src="/icon-512.png" alt="" /></div>
     <div id="root"></div>
     <!-- Самолечение белого экрана: если бандл не загрузился (404 после деплоя),
          один раз чистим кэш + SW и перезагружаемся. Флаг в sessionStorage от цикла. -->
@@ -43,8 +71,13 @@
             if (root && root.childElementCount === 0) selfHeal('empty-root');
           }, 8000);
         });
-        // Успешный рендер — сбрасываем флаг, чтобы лечение работало и в будущем
-        window.__appMounted = function () { sessionStorage.removeItem('healed'); };
+        // Успешный рендер — сбрасываем флаг, чтобы лечение работало и в будущем,
+        // и убираем сплэш (React уже отрисовал реальный контент в #root).
+        window.__appMounted = function () {
+          sessionStorage.removeItem('healed');
+          var splash = document.getElementById('boot-splash');
+          if (splash) splash.remove();
+        };
       })();
     </script>
     <script type="module" src="/src/main.jsx"></script>

@@ -10,12 +10,21 @@ const fs = require('fs');
 const os = require('os');
 const webpush = require('web-push');
 const { db, Users, Chats, Messages, Blocked, Muted, Stories } = require('./db');
+const { encryptBuffer, decryptBuffer } = require('./crypto');
 
-// Email OTP via EmailJS REST API
+// Email OTP via EmailJS REST API. Service/template/public IDs are the
+// non-secret identifiers EmailJS expects embedded in clients, so a default
+// is fine — but the private key is a real credential and must come from the
+// environment only (an old hardcoded value here was committed to git history
+// and should be treated as leaked; rotate it in the EmailJS dashboard and set
+// EMAILJS_PRIVATE_KEY in Railway).
 const EMAILJS_SERVICE_ID  = process.env.EMAILJS_SERVICE_ID  || 'service_9db449v';
 const EMAILJS_TEMPLATE_ID = process.env.EMAILJS_TEMPLATE_ID || 'template_gpsu9he';
 const EMAILJS_PUBLIC_KEY  = process.env.EMAILJS_PUBLIC_KEY  || 'L0A284UuWxQ8rmxcf';
-const EMAILJS_PRIVATE_KEY = process.env.EMAILJS_PRIVATE_KEY || 'YUu6bkjO674C1R0hamXiS';
+const EMAILJS_PRIVATE_KEY = process.env.EMAILJS_PRIVATE_KEY || null;
+if (!EMAILJS_PRIVATE_KEY) {
+  console.warn('[WARN] EMAILJS_PRIVATE_KEY не задан в окружении — отправка OTP-писем будет падать (sendOtpEmail вернёт false). Задай переменную в Railway.');
+}
 
 async function sendOtpEmail(toEmail, code) {
   if (!toEmail) return false;
@@ -51,7 +60,18 @@ if (!process.env.JWT_SECRET) {
   console.warn('[WARN] JWT_SECRET не задан в окружении — используется случайный секрет на этот запуск сервера (все сессии будут сброшены при рестарте). Задайте JWT_SECRET в переменных окружения для стабильных сессий.');
 }
 const JWT_SECRET = process.env.JWT_SECRET || require('crypto').randomBytes(48).toString('hex');
-const TOKEN_TTL = '90d';
+const TOKEN_TTL = '30d';
+
+// Токен несёт tokenVersion пользователя; logout-all / смена пароля / смена
+// 2FA бампают это число в users.extra, и старые токены перестают проходить
+// authMiddleware/socket-auth, даже если их 30-дневный TTL ещё не истёк.
+function signToken(user) {
+  return jwt.sign({ id: user.id, username: user.username, tokenVersion: user.tokenVersion || 0 }, JWT_SECRET, { expiresIn: TOKEN_TTL });
+}
+function bumpTokenVersion(userId) {
+  const u = Users.getById(userId);
+  if (u) Users.update(userId, { tokenVersion: (u.tokenVersion || 0) + 1 });
+}
 const PORT = process.env.PORT || 80;
 const FCM_SERVER_KEY = process.env.FCM_SERVER_KEY || null;
 const APP_VERSION = process.env.APP_VERSION || '1.0.0';
@@ -68,18 +88,26 @@ if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
 // ── VAPID (Web Push) ──────────────────────────────────────────────────────────
+// Env vars take priority so a rotated key can be supplied via Railway
+// variables without touching the volume file (an older vapid.json was found
+// committed to git with a real private key — treat it as leaked, rotate by
+// setting these vars to a freshly generated pair).
 let VAPID_KEYS;
-try {
-  if (fs.existsSync(VAPID_FILE)) {
-    VAPID_KEYS = JSON.parse(fs.readFileSync(VAPID_FILE, 'utf8'));
-  } else {
+if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+  VAPID_KEYS = { publicKey: process.env.VAPID_PUBLIC_KEY, privateKey: process.env.VAPID_PRIVATE_KEY };
+} else {
+  try {
+    if (fs.existsSync(VAPID_FILE)) {
+      VAPID_KEYS = JSON.parse(fs.readFileSync(VAPID_FILE, 'utf8'));
+    } else {
+      VAPID_KEYS = webpush.generateVAPIDKeys();
+      fs.writeFileSync(VAPID_FILE, JSON.stringify(VAPID_KEYS));
+      console.log('✅ VAPID keys generated');
+    }
+  } catch (e) {
     VAPID_KEYS = webpush.generateVAPIDKeys();
-    fs.writeFileSync(VAPID_FILE, JSON.stringify(VAPID_KEYS));
-    console.log('✅ VAPID keys generated');
+    console.error('VAPID load error, generated new keys:', e.message);
   }
-} catch (e) {
-  VAPID_KEYS = webpush.generateVAPIDKeys();
-  console.error('VAPID load error, generated new keys:', e.message);
 }
 webpush.setVapidDetails('mailto:admin@messenger.app', VAPID_KEYS.publicKey, VAPID_KEYS.privateKey);
 
@@ -90,21 +118,34 @@ function savePushSubs(data) {
   try { fs.writeFileSync(PUSH_SUBS_FILE, JSON.stringify(data)); } catch {}
 }
 
-// Rate limiting: ip -> { count, resetAt }
-const registerAttempts = new Map();
-const loginAttempts = new Map();
+// Rate limiting: key -> { count, resetAt }. Shared factory so every
+// brute-forceable endpoint (login, OTP request, 2FA second password) gets
+// the same protection instead of each hand-rolling its own Map.
+function makeRateLimiter(max, windowMs, message) {
+  const attempts = new Map();
+  return function rateLimiter(req, res, next) {
+    const key = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip;
+    const now = Date.now();
+    const att = attempts.get(key) || { count: 0, resetAt: now + windowMs };
+    if (now > att.resetAt) { att.count = 0; att.resetAt = now + windowMs; }
+    att.count++;
+    attempts.set(key, att);
+    if (att.count > max) return res.status(429).json({ error: message });
+    next();
+  };
+}
+// Пороги настраиваются через env (по умолчанию — прежние продовые значения),
+// чтобы интеграционные тесты, которые регистрируют много пользователей в
+// одном тестовом процессе/IP, могли поднять лимит send-otp, не ослабляя
+// реальный лимит на проде.
 // Пароль в /login проверяется bcrypt.compare без ограничений — без лимитера
 // это неограниченный брутфорс любого аккаунта.
-function loginLimiter(req, res, next) {
-  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip;
-  const now = Date.now();
-  const att = loginAttempts.get(ip) || { count: 0, resetAt: now + 3600000 };
-  if (now > att.resetAt) { att.count = 0; att.resetAt = now + 3600000; }
-  att.count++;
-  loginAttempts.set(ip, att);
-  if (att.count > 20) return res.status(429).json({ error: 'Слишком много попыток. Попробуй через час.' });
-  next();
-}
+const loginLimiter = makeRateLimiter(Number(process.env.RATE_LIMIT_LOGIN_MAX) || 20, 3600000, 'Слишком много попыток. Попробуй через час.');
+const registerLimiter = makeRateLimiter(Number(process.env.RATE_LIMIT_REGISTER_MAX) || 10, 3600000, 'Слишком много попыток. Попробуй через час.');
+// /auth/verify-2fa тоже проверяет пароль (облачный/2FA) через bcrypt.compare —
+// без лимитера любой, у кого есть валидный tempToken, может брутфорсить его
+// неограниченно.
+const verify2faLimiter = makeRateLimiter(Number(process.env.RATE_LIMIT_2FA_MAX) || 10, 3600000, 'Слишком много попыток. Попробуй через час.');
 
 // OTP storage: otpToken -> { phone, code, expiresAt, attempts }
 const otpStore = new Map();
@@ -166,13 +207,41 @@ app.use((req, res, next) => {
   res.set('Pragma', 'no-cache'); res.set('Expires', '0');
   next();
 });
-app.use('/uploads', (req, res, next) => {
-  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-  // Запрещаем браузеру угадывать тип файла по содержимому — без этого
-  // .html/.svg с валидным-на-вид расширением мог бы исполниться как страница.
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  next();
-}, express.static(UPLOADS_DIR));
+// Файлы на диске теперь зашифрованы (см. encryptBuffer в /upload), поэтому
+// express.static(UPLOADS_DIR) отдавал бы шифротекст напрямую — вместо него
+// свой роут, который читает, расшифровывает и сам выставляет Content-Type
+// (расширение в имени файла сохраняется как есть, само содержимое — нет).
+const EXT_MIME = {
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp',
+  '.mp4': 'video/mp4', '.mov': 'video/quicktime', '.webm': 'video/webm',
+  '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.oga': 'audio/ogg', '.wav': 'audio/wav', '.m4a': 'audio/mp4',
+  '.pdf': 'application/pdf', '.zip': 'application/zip',
+  '.txt': 'text/plain', '.csv': 'text/csv', '.json': 'application/json',
+  '.doc': 'application/msword', '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.xls': 'application/vnd.ms-excel', '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.ppt': 'application/vnd.ms-powerpoint', '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+};
+app.get('/uploads/:filename', (req, res) => {
+  const { filename } = req.params;
+  // filename генерируется сервером (Date.now()_rand+ext) — но на всякий
+  // случай не даём выйти за пределы UPLOADS_DIR через путь в параметре.
+  if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+    return res.status(400).end();
+  }
+  fs.readFile(path.join(UPLOADS_DIR, filename), (err, encrypted) => {
+    if (err) return res.status(404).end();
+    let plain;
+    try { plain = decryptBuffer(encrypted); }
+    catch (e) { console.error('[uploads] decrypt failed for', filename, ':', e.message); return res.status(500).end(); }
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    // Запрещаем браузеру угадывать тип файла по содержимому — без этого
+    // .html/.svg с валидным-на-вид расширением мог бы исполниться как страница.
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.setHeader('Content-Type', EXT_MIME[path.extname(filename).toLowerCase()] || 'application/octet-stream');
+    res.send(plain);
+  });
+});
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOADS_DIR),
@@ -196,11 +265,76 @@ const upload = multer({
   }
 });
 
+// ── Проверка реального содержимого файла по сигнатуре (magic bytes) ─────────
+// Расширение — это то, чему клиент СКАЗАЛ верить; blacklist выше это не
+// проверяет. Переименовав evil.html в evil.jpg, blacklist обходится
+// полностью. Здесь для файлов, чьё расширение заявляет "это картинка/видео/
+// аудио", сверяем первые байты с реальной сигнатурой формата.
+function sniffFileType(buf) {
+  if (!buf || buf.length < 4) return null;
+  if (buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF) return 'image/jpeg';
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47) return 'image/png';
+  if (buf.subarray(0, 3).toString('ascii') === 'GIF') return 'image/gif';
+  if (buf.length >= 12 && buf.subarray(0, 4).toString('ascii') === 'RIFF' && buf.subarray(8, 12).toString('ascii') === 'WEBP') return 'image/webp';
+  if (buf.length >= 12 && buf.subarray(0, 4).toString('ascii') === 'RIFF' && buf.subarray(8, 12).toString('ascii') === 'WAVE') return 'audio/wav';
+  if (buf[0] === 0x1A && buf[1] === 0x45 && buf[2] === 0xDF && buf[3] === 0xA3) return 'video/webm'; // контейнер EBML, тот же для audio/webm
+  if (buf.length >= 8 && buf.subarray(4, 8).toString('ascii') === 'ftyp') return 'video/mp4'; // и audio/mp4 (m4a) используют ту же ftyp-коробку
+  if (buf.subarray(0, 4).toString('ascii') === 'OggS') return 'audio/ogg';
+  if (buf.subarray(0, 3).toString('ascii') === 'ID3') return 'audio/mpeg';
+  if (buf[0] === 0xFF && (buf[1] & 0xE0) === 0xE0) return 'audio/mpeg'; // MP3 frame sync без ID3-заголовка
+  if (buf.subarray(0, 4).toString('ascii') === '%PDF') return 'application/pdf';
+  if (buf[0] === 0x50 && buf[1] === 0x4B && (buf[2] === 0x03 || buf[2] === 0x05 || buf[2] === 0x07)) return 'application/zip'; // тж. docx/xlsx/pptx
+  return null;
+}
+function readFirstBytes(filePath, n) {
+  const fd = fs.openSync(filePath, 'r');
+  try {
+    const buf = Buffer.alloc(n);
+    const read = fs.readSync(fd, buf, 0, n, 0);
+    return buf.subarray(0, read);
+  } finally { fs.closeSync(fd); }
+}
+// Категория из расширения → какие сигнатуры для неё приемлемы (webm/mp4 —
+// контейнеры, которые могут нести и видео, и только звук, поэтому входят в оба).
+const EXT_CATEGORY = {
+  '.jpg': 'image', '.jpeg': 'image', '.png': 'image', '.gif': 'image', '.webp': 'image',
+  '.mp4': 'video', '.webm': 'video', '.mov': 'video',
+  '.mp3': 'audio', '.ogg': 'audio', '.wav': 'audio', '.m4a': 'audio', '.oga': 'audio'
+};
+const CATEGORY_SIGNATURES = {
+  image: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
+  video: ['video/mp4', 'video/webm'],
+  audio: ['audio/wav', 'audio/ogg', 'audio/mpeg', 'video/webm', 'video/mp4']
+};
+// Возвращает сообщение об ошибке, если содержимое не совпадает с заявленным
+// по расширению типом; null — если совпадает или расширение не в списке
+// строго проверяемых (обычные документы/архивы пропускаем, чтобы не плодить
+// ложные срабатывания на форматах, которые мы не разбираем).
+function rejectIfSpoofed(filePath, originalName) {
+  const ext = path.extname(originalName).toLowerCase();
+  const expected = EXT_CATEGORY[ext];
+  if (!expected) return null;
+  const sniffed = sniffFileType(readFirstBytes(filePath, 16));
+  if (!sniffed || !CATEGORY_SIGNATURES[expected].includes(sniffed)) {
+    return 'Содержимое файла не соответствует его расширению';
+  }
+  return null;
+}
+
 function authMiddleware(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'No token' });
-  try { req.user = jwt.verify(token, JWT_SECRET); next(); }
-  catch { res.status(401).json({ error: 'Invalid token' }); }
+  let payload;
+  try { payload = jwt.verify(token, JWT_SECRET); } catch { return res.status(401).json({ error: 'Invalid token' }); }
+  // tokenVersion в payload сверяется с текущим значением у пользователя —
+  // так logout-all/смена пароля/2FA отзывают токен немедленно, а не только
+  // после истечения TOKEN_TTL.
+  const u = Users.getById(payload.id);
+  if (!u || (payload.tokenVersion || 0) !== (u.tokenVersion || 0)) {
+    return res.status(401).json({ error: 'Сессия отозвана, войдите заново' });
+  }
+  req.user = payload;
+  next();
 }
 
 // BASE_URL must be set in Railway env vars. Falls back to inferring from request headers.
@@ -288,15 +422,8 @@ app.get('/network-info', (req, res) => {
 // ── Auth (Telegram-style: phone → OTP → in) ───────────────────────────────────
 
 // Step 1: send OTP
-app.post('/auth/send-otp', async (req, res) => {
-  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip;
+app.post('/auth/send-otp', registerLimiter, async (req, res) => {
   const now = Date.now();
-  const att = registerAttempts.get(ip) || { count: 0, resetAt: now + 3600000 };
-  if (now > att.resetAt) { att.count = 0; att.resetAt = now + 3600000; }
-  att.count++;
-  registerAttempts.set(ip, att);
-  if (att.count > 10) return res.status(429).json({ error: 'Слишком много попыток. Попробуй через час.' });
-
   const { email } = req.body;
   if (!email?.trim() || !email.includes('@')) return res.status(400).json({ error: 'Введи email адрес' });
 
@@ -352,7 +479,7 @@ app.post('/auth/verify-otp', async (req, res) => {
     return res.json({ need2fa: true, tempToken, hint: user.twoFactorHint || null });
   }
 
-  const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: TOKEN_TTL });
+  const token = signToken(user);
   res.json({ token, user: safeUser(user, true) });
 });
 
@@ -363,7 +490,7 @@ app.post('/login', loginLimiter, async (req, res) => {
   if (!user) return res.status(400).json({ error: 'Пользователь не найден' });
   if (!user.password) return res.status(400).json({ error: 'Используй вход по номеру телефона' });
   if (!await bcrypt.compare(password, user.password)) return res.status(400).json({ error: 'Неверный пароль' });
-  const token = jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, { expiresIn: TOKEN_TTL });
+  const token = signToken(user);
   res.json({ token, user: safeUser(user) });
 });
 
@@ -403,14 +530,16 @@ app.post('/auth/2fa', authMiddleware, async (req, res) => {
   }
   if (!password) { // снятие
     Users.update(req.user.id, { twoFactor: null, twoFactorHint: null });
+    bumpTokenVersion(req.user.id);
     return res.json({ ok: true, enabled: false });
   }
   if (password.length < 4) return res.status(400).json({ error: 'Минимум 4 символа' });
   Users.update(req.user.id, { twoFactor: await bcrypt.hash(password, 10), twoFactorHint: hint || null });
+  bumpTokenVersion(req.user.id);
   res.json({ ok: true, enabled: true });
 });
 
-app.post('/auth/verify-2fa', async (req, res) => {
+app.post('/auth/verify-2fa', verify2faLimiter, async (req, res) => {
   const { tempToken, password } = req.body;
   if (!tempToken || !password) return res.status(400).json({ error: 'Неверный запрос' });
   let payload;
@@ -419,7 +548,7 @@ app.post('/auth/verify-2fa', async (req, res) => {
   const u = Users.getById(payload.id);
   if (!u?.twoFactor) return res.status(400).json({ error: 'Не найден' });
   if (!await bcrypt.compare(password, u.twoFactor)) return res.status(400).json({ error: 'Неверный пароль' });
-  const token = jwt.sign({ id: u.id, username: u.username }, JWT_SECRET, { expiresIn: TOKEN_TTL });
+  const token = signToken(u);
   res.json({ token, user: safeUser(u, true) });
 });
 
@@ -484,10 +613,12 @@ app.get('/avatar/:userId', (req, res) => {
 const ALLOWED_AVATAR_MIME = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 app.post('/profile/avatar', authMiddleware, upload.single('avatar'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
-  // Тип файла аватара берётся из заголовка запроса клиента и раньше сохранялся
-  // без проверки — можно было выдать HTML/SVG за "аватар" и получить исполняемую
-  // страницу на публичной неавторизованной ссылке /avatar/:userId.
-  if (!ALLOWED_AVATAR_MIME.includes(req.file.mimetype)) {
+  // Раньше сюда доверяли req.file.mimetype — это заголовок Content-Type
+  // мультипарт-части, который задаёт КЛИЕНТ, а не то, что реально в байтах
+  // файла. Переименовав evil.html и подставив Content-Type: image/jpeg,
+  // проверку можно было обойти полностью. Сверяем настоящую сигнатуру байтов.
+  const sniffed = sniffFileType(readFirstBytes(req.file.path, 16));
+  if (!sniffed || !ALLOWED_AVATAR_MIME.includes(sniffed)) {
     try { fs.unlinkSync(req.file.path); } catch {}
     return res.status(400).json({ error: 'Разрешены только изображения (JPEG, PNG, WEBP, GIF)' });
   }
@@ -497,7 +628,7 @@ app.post('/profile/avatar', authMiddleware, upload.single('avatar'), (req, res) 
   try {
     const buf = fs.readFileSync(req.file.path);
     // Store raw binary in DB, serve via /avatar/:id endpoint
-    const avatarData = { data: buf.toString('base64'), mime: req.file.mimetype || 'image/jpeg' };
+    const avatarData = { data: buf.toString('base64'), mime: sniffed };
     const avatar = `${resolveBaseUrl(req)}/avatar/${user.id}`;
     updated = Users.update(user.id, { avatarData, avatar });
     try { fs.unlinkSync(req.file.path); } catch {}
@@ -518,6 +649,14 @@ app.put('/change-password', authMiddleware, async (req, res) => {
   if (!user) return res.status(404).json({ error: 'Не найден' });
   if (!await bcrypt.compare(currentPassword, user.password)) return res.status(400).json({ error: 'Неверный текущий пароль' });
   Users.update(user.id, { password: await bcrypt.hash(newPassword, 10) });
+  bumpTokenVersion(user.id);
+  res.json({ ok: true });
+});
+
+// Отозвать все выданные ранее токены (например «выйти со всех устройств»
+// после смены пароля, подозрения на компрометацию и т.п.)
+app.post('/auth/logout-all', authMiddleware, (req, res) => {
+  bumpTokenVersion(req.user.id);
   res.json({ ok: true });
 });
 
@@ -633,15 +772,27 @@ async function sendWebPush(userId, payload) {
 }
 
 // ── Chats ─────────────────────────────────────────────────────────────────────
+// Раньше это был N+1: lastForChat/unreadCount/Users.getById дёргались в цикле по
+// каждому чату (до 3N+3 запросов). Теперь три батч-запроса на весь список чатов
+// независимо от их количества — вывод и сортировка не меняются.
 app.get('/chats', authMiddleware, (req, res) => {
   const userChats = Chats.forUser(req.user.id);
+  const chatIds = userChats.map(c => c.id);
+  const lastMsgMap = Messages.lastForChats(chatIds);
+  const unreadMap = Messages.unreadCounts(chatIds, req.user.id);
+  const otherIds = [...new Set(userChats
+    .filter(c => c.type === 'private' || c.type === 'secret')
+    .map(c => c.members.find(id => id !== req.user.id))
+    .filter(Boolean))];
+  const otherUserById = new Map(Users.getByIds(otherIds).map(u => [u.id, u]));
+
   const enriched = userChats.map(chat => {
-    const lastMessage = Messages.lastForChat(chat.id);
-    const unread = Messages.unreadCount(chat.id, req.user.id);
+    const lastMessage = lastMsgMap.get(chat.id) || null;
+    const unread = unreadMap.get(chat.id) || 0;
     let displayName = chat.name, otherUser = null;
     if (chat.type === 'private' || chat.type === 'secret') {
       const otherId = chat.members.find(id => id !== req.user.id);
-      otherUser = Users.getById(otherId);
+      otherUser = otherUserById.get(otherId) || null;
       displayName = otherUser?.displayName || otherUser?.username || 'Неизвестный';
     } else if (chat.type === 'saved') {
       displayName = 'Избранное';
@@ -778,6 +929,22 @@ app.post('/messages/queued', authMiddleware, async (req, res) => {
 // ── Upload ────────────────────────────────────────────────────────────────────
 app.post('/upload', authMiddleware, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
+  const spoofError = rejectIfSpoofed(req.file.path, req.file.originalname);
+  if (spoofError) {
+    try { fs.unlinkSync(req.file.path); } catch {}
+    return res.status(400).json({ error: spoofError });
+  }
+  // multer записал файл на диск открытым текстом — сверка сигнатуры выше уже
+  // прошла по этим байтам, теперь шифруем на диске (защита от кражи /uploads
+  // или бэкапа volume). /uploads/:filename расшифровывает обратно при отдаче.
+  try {
+    const plain = fs.readFileSync(req.file.path);
+    fs.writeFileSync(req.file.path, encryptBuffer(plain));
+  } catch (e) {
+    console.error('Upload encrypt error:', e.message);
+    try { fs.unlinkSync(req.file.path); } catch {}
+    return res.status(500).json({ error: 'Ошибка сохранения файла' });
+  }
   const url = `${resolveBaseUrl(req)}/uploads/${req.file.filename}`;
   console.log(`[upload] ${req.file.originalname} → ${url}`);
   res.json({ url, name: req.file.originalname, size: req.file.size, mimetype: req.file.mimetype });
@@ -844,8 +1011,12 @@ function joinUserToChat(userId, chatId) {
 }
 
 io.use((socket, next) => {
-  try { socket.user = jwt.verify(socket.handshake.auth.token, JWT_SECRET); next(); }
-  catch { next(new Error('Auth error')); }
+  let payload;
+  try { payload = jwt.verify(socket.handshake.auth.token, JWT_SECRET); } catch { return next(new Error('Auth error')); }
+  const u = Users.getById(payload.id);
+  if (!u || (payload.tokenVersion || 0) !== (u.tokenVersion || 0)) return next(new Error('Auth error'));
+  socket.user = payload;
+  next();
 });
 
 io.on('connection', (socket) => {

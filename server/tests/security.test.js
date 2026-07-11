@@ -3,10 +3,12 @@
 // настоящими HTTP- и Socket.IO-запросами — без моков бизнес-логики.
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('fs');
+const path = require('path');
 const { createTestServer } = require('./helpers');
 
 const srv = createTestServer(39217);
-const { BASE_URL, registerUser, connectSocket, emitWithAck, apiFetch } = srv;
+const { BASE_URL, dataDir, registerUser, connectSocket, emitWithAck, apiFetch } = srv;
 
 test.before(() => srv.start());
 test.after(() => srv.stop());
@@ -100,4 +102,61 @@ test('avatar upload rejects non-image MIME types (stored-XSS fix)', async () => 
     method: 'POST', headers: { Authorization: `Bearer ${alice.token}` }, body: form
   });
   assert.equal(res.status, 400);
+});
+
+test('uploaded file is stored encrypted on disk and served back decrypted', async () => {
+  const alice = await registerUser('alice-upload@test.local');
+  const content = 'hello from an uploaded file, definitely not a secret';
+  const form = new FormData();
+  form.append('file', new Blob([content], { type: 'text/plain' }), 'note.txt');
+  const res = await fetch(`${BASE_URL}/upload`, {
+    method: 'POST', headers: { Authorization: `Bearer ${alice.token}` }, body: form
+  });
+  assert.equal(res.status, 200);
+  const { url, name } = await res.json();
+  assert.equal(name, 'note.txt');
+
+  const filename = url.split('/uploads/')[1];
+  const raw = fs.readFileSync(path.join(dataDir, 'uploads', filename));
+  assert.ok(!raw.toString('utf8').includes(content), 'raw bytes on disk must not contain the plaintext');
+
+  const fetched = await fetch(url);
+  assert.equal(fetched.status, 200);
+  assert.equal(await fetched.text(), content, 'served content must decrypt back to the original');
+});
+
+test('upload rejects a file whose real bytes do not match its claimed extension (renamed-file bypass)', async () => {
+  const alice = await registerUser('alice-spoof@test.local');
+  const form = new FormData();
+  form.append('file', new Blob(['<script>alert(1)</script>'], { type: 'image/jpeg' }), 'totally-a-photo.jpg');
+  const res = await fetch(`${BASE_URL}/upload`, {
+    method: 'POST', headers: { Authorization: `Bearer ${alice.token}` }, body: form
+  });
+  assert.equal(res.status, 400);
+});
+
+test('POST /auth/verify-2fa is rate-limited (unlimited brute-force fix)', async () => {
+  // The limiter runs before tempToken/password are even checked, so hammering
+  // it with a bogus payload is enough to prove the 429 kicks in — this used
+  // to be uncapped (only /login and /auth/send-otp had a limiter before).
+  let lastStatus;
+  for (let i = 0; i < 11; i++) {
+    const r = await fetch(`${BASE_URL}/auth/verify-2fa`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tempToken: 'bogus', password: 'wrong' })
+    });
+    lastStatus = r.status;
+  }
+  assert.equal(lastStatus, 429);
+});
+
+test('logout-all revokes the old token immediately (tokenVersion)', async () => {
+  const alice = await registerUser('alice-logout-all@test.local');
+  const before = await apiFetch('/chats', alice.token);
+  assert.equal(before.status, 200);
+
+  await apiFetch('/auth/logout-all', alice.token, { method: 'POST' });
+
+  const after = await apiFetch('/chats', alice.token);
+  assert.equal(after.status, 401, 'the pre-logout-all token must be rejected once tokenVersion has been bumped');
 });

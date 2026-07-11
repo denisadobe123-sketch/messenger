@@ -4,6 +4,7 @@
 const path = require('path');
 const fs = require('fs');
 const Database = require('better-sqlite3');
+const { encryptText, decryptText } = require('./crypto');
 
 const DATA_DIR = process.env.DATA_DIR || __dirname;
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -164,7 +165,7 @@ function rowToMessage(r, readsByMsg) {
   const m = {
     id: r.id, clientId: r.clientId, chatId: r.chatId,
     senderId: r.senderId, senderName: r.senderName,
-    text: r.text, file: P(r.file), voice: P(r.voice) ?? r.voice, sticker: r.sticker,
+    text: decryptText(r.text), file: P(r.file), voice: P(r.voice) ?? r.voice, sticker: r.sticker,
     videoNote: P(r.videoNote), forwardOf: P(r.forwardOf), replyTo: P(r.replyTo),
     reactions: P(r.reactions) || [],
     entities: P(r.entities) || undefined,
@@ -194,6 +195,13 @@ function packUserExtra(obj) {
 
 const Users = {
   getById: (id) => rowToUser(db.prepare('SELECT * FROM users WHERE id=?').get(id)),
+  // Батч-версия getById — один запрос вместо N, для мест вроде GET /chats,
+  // которым нужны сразу несколько пользователей (собеседники по всем чатам).
+  getByIds: (ids) => {
+    if (!ids.length) return [];
+    const placeholders = ids.map(() => '?').join(',');
+    return db.prepare(`SELECT * FROM users WHERE id IN (${placeholders})`).all(...ids).map(rowToUser);
+  },
   getByEmail: (email) => rowToUser(db.prepare('SELECT * FROM users WHERE lower(email)=lower(?)').get(email)),
   getByUsername: (u) => rowToUser(db.prepare('SELECT * FROM users WHERE lower(username)=lower(?)').get(u)),
   getByHandle: (h) => rowToUser(db.prepare('SELECT * FROM users WHERE lower(handle)=lower(?)').get(h)),
@@ -345,18 +353,52 @@ const Messages = {
     }
     return rows.map(r => rowToMessage(r, reads));
   },
+  // rowid — тай-брейкер для сообщений с одинаковым createdAt (например, два
+  // сообщения в один и тот же миллисекунд): без него ORDER BY createdAt DESC
+  // не детерминирован и одиночная/батч-версии могли выбрать РАЗНЫЕ строки
+  // как "последнее сообщение" при равенстве времени. rowid растёт вместе с
+  // порядком вставки, так что старший rowid = вставлено позже.
   lastForChat: (chatId) => {
-    const r = db.prepare('SELECT * FROM messages WHERE chatId=? AND scheduledAt IS NULL ORDER BY createdAt DESC LIMIT 1').get(chatId);
+    const r = db.prepare('SELECT * FROM messages WHERE chatId=? AND scheduledAt IS NULL ORDER BY createdAt DESC, rowid DESC LIMIT 1').get(chatId);
     return r ? rowToMessage(r) : null;
+  },
+  // Батч-версия lastForChat — раньше GET /chats дёргал lastForChat в цикле по
+  // каждому чату (N запросов); один оконный запрос вместо этого.
+  lastForChats: (chatIds) => {
+    const map = new Map();
+    if (!chatIds.length) return map;
+    const placeholders = chatIds.map(() => '?').join(',');
+    const rows = db.prepare(`
+      SELECT * FROM (
+        SELECT *, ROW_NUMBER() OVER (PARTITION BY chatId ORDER BY createdAt DESC, rowid DESC) as rn
+        FROM messages WHERE chatId IN (${placeholders}) AND scheduledAt IS NULL
+      ) WHERE rn = 1
+    `).all(...chatIds);
+    for (const r of rows) map.set(r.chatId, rowToMessage(r));
+    return map;
   },
   unreadCount: (chatId, userId) =>
     db.prepare(`SELECT count(*) n FROM messages m WHERE m.chatId=? AND m.scheduledAt IS NULL AND m.senderId != ?
       AND NOT EXISTS (SELECT 1 FROM message_reads r WHERE r.messageId=m.id AND r.userId=?)`).get(chatId, userId, userId).n,
+  // Батч-версия unreadCount — тот же переход от N запросов к одному.
+  unreadCounts: (chatIds, userId) => {
+    const map = new Map();
+    if (!chatIds.length) return map;
+    const placeholders = chatIds.map(() => '?').join(',');
+    const rows = db.prepare(`
+      SELECT chatId, count(*) n FROM messages m
+      WHERE m.chatId IN (${placeholders}) AND m.scheduledAt IS NULL AND m.senderId != ?
+        AND NOT EXISTS (SELECT 1 FROM message_reads r WHERE r.messageId=m.id AND r.userId=?)
+      GROUP BY chatId
+    `).all(...chatIds, userId, userId);
+    for (const r of rows) map.set(r.chatId, r.n);
+    return map;
+  },
   create: (m) => {
     msgInsert.run({
       id: m.id, clientId: m.clientId || null, chatId: m.chatId,
       senderId: m.senderId || null, senderName: m.senderName || null,
-      text: m.text ?? null, file: J(m.file), voice: J(m.voice), sticker: m.sticker ?? null,
+      text: encryptText(m.text ?? null), file: J(m.file), voice: J(m.voice), sticker: m.sticker ?? null,
       videoNote: J(m.videoNote), forwardOf: J(m.forwardOf), replyTo: J(m.replyTo),
       reactions: J(m.reactions || []), entities: J(m.entities), preview: J(m.preview),
       poll: J(m.poll), location: J(m.location),
@@ -378,7 +420,7 @@ const Messages = {
     for (const [k, v] of Object.entries(fields)) {
       if (!(k in cur)) continue;
       sets.push(`${k}=@${k}`);
-      vals[k] = jsonCols.has(k) ? J(v) : boolCols.has(k) ? (v ? 1 : 0) : v;
+      vals[k] = jsonCols.has(k) ? J(v) : boolCols.has(k) ? (v ? 1 : 0) : k === 'text' ? encryptText(v) : v;
     }
     if (sets.length) db.prepare(`UPDATE messages SET ${sets.join(',')} WHERE id=@__id`).run({ ...vals, __id: id });
     return Messages.getById(id);
@@ -402,18 +444,37 @@ const Messages = {
     });
     tx();
   },
+  // text — теперь шифротекст в столбце, SQL LIKE по нему бессмысленен.
+  // Читаем кандидатов (уже отсортированных по дате), расшифровываем и
+  // фильтруем в JS, останавливаясь, как только набрали лимит. Индекса по
+  // text не было и раньше, так что на масштабе этого приложения это не
+  // регресс производительности.
   searchInChat: (chatId, q) => {
-    const like = `%${q.toLowerCase()}%`;
-    return db.prepare(`SELECT * FROM messages WHERE chatId=? AND deleted=0 AND scheduledAt IS NULL
-      AND lower(text) LIKE ? ORDER BY createdAt DESC LIMIT 100`).all(chatId, like).map(r => rowToMessage(r));
+    const ql = q.toLowerCase();
+    const rows = db.prepare(`SELECT * FROM messages WHERE chatId=? AND deleted=0 AND scheduledAt IS NULL
+      ORDER BY createdAt DESC`).all(chatId);
+    const out = [];
+    for (const r of rows) {
+      const m = rowToMessage(r);
+      if (m.text && m.text.toLowerCase().includes(ql)) out.push(m);
+      if (out.length >= 100) break;
+    }
+    return out;
   },
   // Глобальный поиск по всем чатам пользователя
   searchForUser: (userId, q, limit = 100) => {
-    const like = `%${q.toLowerCase()}%`;
-    return db.prepare(`SELECT m.* FROM messages m
+    const ql = q.toLowerCase();
+    const rows = db.prepare(`SELECT m.* FROM messages m
       JOIN chat_members cm ON cm.chatId = m.chatId AND cm.userId = ?
-      WHERE m.deleted=0 AND m.scheduledAt IS NULL AND lower(m.text) LIKE ?
-      ORDER BY m.createdAt DESC LIMIT ?`).all(userId, like, limit).map(r => rowToMessage(r));
+      WHERE m.deleted=0 AND m.scheduledAt IS NULL
+      ORDER BY m.createdAt DESC`).all(userId);
+    const out = [];
+    for (const r of rows) {
+      const m = rowToMessage(r);
+      if (m.text && m.text.toLowerCase().includes(ql)) out.push(m);
+      if (out.length >= limit) break;
+    }
+    return out;
   },
   pinnedForChat: (chatId) =>
     db.prepare('SELECT * FROM messages WHERE chatId=? AND pinned=1 AND deleted=0 ORDER BY createdAt ASC')

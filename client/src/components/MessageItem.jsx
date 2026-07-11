@@ -4,6 +4,8 @@ import EmojiPicker from './EmojiPicker.jsx';
 import { VideoNotePlayer } from './VideoNote.jsx';
 import LinkPreview from './LinkPreview.jsx';
 import { renderText, firstUrl } from '../format.jsx';
+import { useDecryptedMedia } from '../useDecryptedMedia.js';
+import { MoreIcon, ReplyIcon, CopyIcon, ForwardIcon, PinIcon, EditIcon, TrashIcon } from '../icons.jsx';
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🔥', '🎉', '👎'];
 
@@ -80,7 +82,7 @@ function LocationView({ location }) {
 export default function MessageItem({
   msg, isOwn, showSender, groupStart = true, groupEnd = true, isRead, currentUserId, isPinned, highlighted,
   onReact, onReply, onEdit, onDelete, onPin, onUnpin, onScrollToReply, onForward,
-  onImageClick, selectMode, selected, onToggleSelect, chatMemberCount, token, onVote
+  onImageClick, selectMode, selected, onToggleSelect, chatMemberCount, token, onVote, otherId
 }) {
   const [showPicker, setShowPicker] = useState(false);
   const [showFullEmoji, setShowFullEmoji] = useState(false);
@@ -93,6 +95,14 @@ export default function MessageItem({
   const longPressedRef = useRef(false);
   const time = new Date(msg.createdAt).toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
   const isImage = msg.file?.mimetype?.startsWith('image/');
+
+  // Вложения секретных чатов приходят с сервера как шифротекст — скачиваем
+  // и расшифровываем на устройстве (e2e.js) перед показом. Для обычных
+  // чатов otherId ниже — null, и хук просто возвращает исходный url без сети.
+  const encOtherId = msg.enc ? otherId : null;
+  const fileMedia = useDecryptedMedia(msg.file?.url, encOtherId, token, msg.file?.mimetype);
+  const voiceMedia = useDecryptedMedia(msg.voice?.url, encOtherId, token, 'audio/webm');
+  const videoNoteMedia = useDecryptedMedia(msg.videoNote?.url, encOtherId, token, 'video/webm');
 
   useEffect(() => {
     if (!showMenu) return;
@@ -204,19 +214,25 @@ export default function MessageItem({
         </div>
       )}
 
-      {msg.videoNote && <VideoNotePlayer url={msg.videoNote.url} />}
-      {msg.voice && <VoicePlayer url={msg.voice.url} duration={msg.voice.duration} />}
+      {msg.videoNote && (videoNoteMedia.loading
+        ? <div className="msg-file" style={{ opacity: 0.6 }}>🔒 Расшифровка видео…</div>
+        : <VideoNotePlayer url={videoNoteMedia.src} />)}
+      {msg.voice && (voiceMedia.loading
+        ? <div className="msg-file" style={{ opacity: 0.6 }}>🔒 Расшифровка голосового…</div>
+        : <VoicePlayer url={voiceMedia.src} duration={msg.voice.duration} />)}
 
       {msg.file && (
-        isImage ? (
+        fileMedia.loading ? (
+          <div className="msg-file" style={{ opacity: 0.6 }}>🔒 Расшифровка вложения…</div>
+        ) : isImage ? (
           <img
-            src={msg.file.url}
+            src={fileMedia.src}
             alt={msg.file.name}
             className="msg-image"
-            onClick={() => onImageClick?.(msg.file.url)}
+            onClick={() => onImageClick?.(fileMedia.src)}
           />
         ) : (
-          <a href={msg.file.url} target="_blank" rel="noreferrer" className="msg-file" download={msg.file.name}>
+          <a href={fileMedia.src} target="_blank" rel="noreferrer" className="msg-file" download={msg.file.name}>
             <span className="msg-file-icon">{fileIcon(msg.file.mimetype)}</span>
             <div className="msg-file-info">
               <div className="msg-file-name">{msg.file.name}</div>
@@ -246,22 +262,22 @@ export default function MessageItem({
 
       <div className="msg-footer">
         <div className="msg-menu-wrap" ref={menuRef}>
-          <button className="msg-menu-btn" onClick={() => setShowMenu(p => !p)}>⋯</button>
+          <button className="msg-menu-btn" onClick={() => setShowMenu(p => !p)}><MoreIcon /></button>
           {showMenu && (
             <div className="msg-context-menu">
-              <button className="msg-context-item" onClick={() => { onReply?.(msg); setShowMenu(false); }}>↩️ Ответить</button>
+              <button className="msg-context-item" onClick={() => { onReply?.(msg); setShowMenu(false); }}><ReplyIcon /> Ответить</button>
               {msg.text && (
-                <button className="msg-context-item" onClick={() => { navigator.clipboard?.writeText(msg.text); setShowMenu(false); }}>📋 Копировать</button>
+                <button className="msg-context-item" onClick={() => { navigator.clipboard?.writeText(msg.text); setShowMenu(false); }}><CopyIcon /> Копировать</button>
               )}
-              <button className="msg-context-item" onClick={() => { onForward?.(msg); setShowMenu(false); }}>➡️ Переслать</button>
+              <button className="msg-context-item" onClick={() => { onForward?.(msg); setShowMenu(false); }}><ForwardIcon /> Переслать</button>
               {isPinned
-                ? <button className="msg-context-item" onClick={() => { onUnpin?.(); setShowMenu(false); }}>📌 Открепить</button>
-                : <button className="msg-context-item" onClick={() => { onPin?.(msg.id); setShowMenu(false); }}>📌 Закрепить</button>}
+                ? <button className="msg-context-item" onClick={() => { onUnpin?.(); setShowMenu(false); }}><PinIcon /> Открепить</button>
+                : <button className="msg-context-item" onClick={() => { onPin?.(msg.id); setShowMenu(false); }}><PinIcon /> Закрепить</button>}
               {isOwn && msg.text && (
-                <button className="msg-context-item" onClick={() => { onEdit?.(msg); setShowMenu(false); }}>✏️ Изменить</button>
+                <button className="msg-context-item" onClick={() => { onEdit?.(msg); setShowMenu(false); }}><EditIcon /> Изменить</button>
               )}
               {isOwn && (
-                <button className="msg-context-item danger" onClick={() => { onDelete?.(msg.id); setShowMenu(false); }}>🗑 Удалить</button>
+                <button className="msg-context-item danger" onClick={() => { onDelete?.(msg.id); setShowMenu(false); }}><TrashIcon /> Удалить</button>
               )}
             </div>
           )}

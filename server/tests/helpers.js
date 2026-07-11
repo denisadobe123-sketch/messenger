@@ -30,7 +30,15 @@ function createTestServer(port) {
   async function start() {
     serverProc = spawn(process.execPath, ['index.js'], {
       cwd: path.join(__dirname, '..'),
-      env: { ...process.env, PORT: String(port), DATA_DIR: tmpDir, JWT_SECRET: 'test-secret-not-for-production' },
+      env: {
+        ...process.env, PORT: String(port), DATA_DIR: tmpDir,
+        JWT_SECRET: 'test-secret-not-for-production', DATA_ENC_KEY: 'ab'.repeat(32),
+        // Каждый тест-файл регистрирует много пользователей с одного IP (localhost)
+        // в течение часа — реальный продовый лимит send-otp (10/час) не рассчитан
+        // на это. Лимиты login/2fa НЕ трогаем: их проверяют собственные тесты и
+        // им нужен настоящий низкий порог, чтобы получить 429 за разумное число попыток.
+        RATE_LIMIT_REGISTER_MAX: '1000'
+      },
       stdio: 'pipe'
     });
     serverProc.stdout.on('data', d => { stdoutBuf += d.toString(); });
@@ -101,7 +109,7 @@ function createTestServer(port) {
     return { status: res.status, ok: res.ok, body: json };
   }
 
-  return { BASE_URL, start, stop, registerUser, connectSocket, emitWithAck, waitForEvent, apiFetch, waitFor: (pred, opts) => waitFor(() => stdoutBuf, pred, opts) };
+  return { BASE_URL, dataDir: tmpDir, start, stop, registerUser, connectSocket, emitWithAck, waitForEvent, apiFetch, waitFor: (pred, opts) => waitFor(() => stdoutBuf, pred, opts) };
 }
 
 module.exports = { createTestServer };

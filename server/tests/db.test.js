@@ -8,6 +8,9 @@ const path = require('path');
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexora-db-test-'));
 process.env.DATA_DIR = tmpDir;
+// Ключ для at-rest шифрования — фиксируем, чтобы тесты не молотили предупреждение
+// про эфемерный ключ (безопасно: в рамках одного процесса без рестартов).
+process.env.DATA_ENC_KEY = process.env.DATA_ENC_KEY || 'cd'.repeat(32);
 
 const { db, Users, Chats, Messages, Blocked, Muted } = require('../db');
 
@@ -69,6 +72,52 @@ test('Messages: create + forChat pagination with before cursor', () => {
   assert.deepEqual(latest.map(m => m.text), ['msg 2', 'msg 3', 'msg 4']);
   const older = Messages.forChat(chat.id, { before: 'm2', limit: 60 });
   assert.deepEqual(older.map(m => m.text), ['msg 0', 'msg 1']);
+});
+
+test('Messages.lastForChats/unreadCounts (batched) match the per-id versions (GET /chats N+1 fix)', () => {
+  makeUser('batch-a', 'batchalice');
+  makeUser('batch-b', 'batchbob');
+  const c1 = Chats.create({ id: 'batch-c1', type: 'private', createdBy: 'batch-a', members: ['batch-a', 'batch-b'] });
+  const c2 = Chats.create({ id: 'batch-c2', type: 'private', createdBy: 'batch-a', members: ['batch-a', 'batch-b'] });
+  const c3 = Chats.create({ id: 'batch-c3', type: 'private', createdBy: 'batch-a', members: ['batch-a', 'batch-b'] }); // no messages at all
+  Messages.create({ id: 'batch-m1', chatId: c1.id, senderId: 'batch-a', text: 'first' });
+  Messages.create({ id: 'batch-m2', chatId: c1.id, senderId: 'batch-b', text: 'second, latest in c1' });
+  Messages.create({ id: 'batch-m3', chatId: c2.id, senderId: 'batch-b', text: 'only message in c2' });
+
+  const ids = [c1.id, c2.id, c3.id];
+  const lastMap = Messages.lastForChats(ids);
+  const unreadMap = Messages.unreadCounts(ids, 'batch-a');
+
+  for (const id of ids) {
+    assert.equal(lastMap.get(id)?.text, Messages.lastForChat(id)?.text, `lastForChats mismatch for ${id}`);
+    assert.equal(unreadMap.get(id) || 0, Messages.unreadCount(id, 'batch-a'), `unreadCounts mismatch for ${id}`);
+  }
+  assert.equal(lastMap.get(c1.id).text, 'second, latest in c1');
+  assert.equal(lastMap.get(c3.id), undefined); // chat with no messages -> absent, not a crash
+  assert.equal(unreadMap.get(c1.id) || 0, 1); // batch-b's message unread for batch-a
+  assert.equal(unreadMap.get(c2.id) || 0, 1);
+  assert.equal(unreadMap.get(c3.id) || 0, 0);
+});
+
+test('message text is encrypted at rest (raw SQL row is ciphertext, API sees plaintext)', () => {
+  makeUser('u7', 'grace');
+  const chat = Chats.create({ id: 'encchat', type: 'private', createdBy: 'u7', members: ['u7'] });
+  const created = Messages.create({ id: 'enc-m1', chatId: chat.id, senderId: 'u7', senderName: 'grace', text: 'super secret plan' });
+  assert.equal(created.text, 'super secret plan'); // API decrypts transparently
+
+  const raw = db.prepare('SELECT text FROM messages WHERE id=?').get('enc-m1');
+  assert.notEqual(raw.text, 'super secret plan');
+  assert.ok(raw.text.startsWith('enc:'), 'raw column should hold the enc: ciphertext marker, not plaintext');
+
+  // Editing (patch) re-encrypts too
+  Messages.patch('enc-m1', { text: 'edited secret plan' });
+  const rawAfterEdit = db.prepare('SELECT text FROM messages WHERE id=?').get('enc-m1');
+  assert.ok(rawAfterEdit.text.startsWith('enc:'));
+  assert.equal(Messages.getById('enc-m1').text, 'edited secret plan');
+
+  // Search decrypts-then-filters (SQL LIKE can't work on ciphertext anymore)
+  const found = Messages.searchInChat(chat.id, 'edited secret');
+  assert.ok(found.some(m => m.id === 'enc-m1'));
 });
 
 test('Blocked: block/unblock/isBlocked is directional', () => {

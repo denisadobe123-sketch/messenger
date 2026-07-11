@@ -8,6 +8,7 @@ server/db.json.migrated
 server/messenger.db
 server/messenger.db-shm
 server/messenger.db-wal
+server/vapid.json
 server/_test_data/
 server/_test_cold/
 server/_test*/

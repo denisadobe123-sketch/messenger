@@ -7,9 +7,11 @@ import { getSocket } from '../socket.js';
 import { API_URL } from '../api.js';
 import { tap } from '../native.js';
 import { enqueue } from '../offlineQueue.js';
-import { encryptFor, decryptFrom } from '../e2e.js';
+import { encryptFor, decryptFrom, encryptBytesFor } from '../e2e.js';
+import { useDecryptedMedia } from '../useDecryptedMedia.js';
 import { getAvatarColor } from '../avatarColor.js';
 import ConfirmDialog from './ConfirmDialog.jsx';
+import { SearchIcon, ImageIcon, ClockIcon, CheckSquareIcon, SlashIcon, CheckIcon, TrashIcon, FileIcon, BarChartIcon, MapPinIcon } from '../icons.jsx';
 
 const DRAFTS_KEY = 'chat_drafts';
 
@@ -117,6 +119,13 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   const [backSwipeX, setBackSwipeX] = useState(0);
   const backSwipe = useRef({ x: 0, y: 0, dx: 0, active: false });
   const dragCounter = useRef(0);
+  // chatId -> { messages, hasMoreAbove } — так повторное открытие чата,
+  // уже просмотренного в этой сессии, рендерится мгновенно из памяти вместо
+  // скелетона+пустого экрана на каждый network round-trip.
+  const messagesCacheRef = useRef(new Map());
+  // Последний запрошенный chat.id — чтобы медленно пришедший ответ на fetch
+  // для уже покинутого чата не перезаписал сообщения текущего.
+  const latestChatIdRef = useRef(null);
 
   const [recording, setRecording] = useState(false);
   const [recordTime, setRecordTime] = useState(0);
@@ -138,9 +147,23 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   const isSecret = chat?.type === 'secret';
   const otherId = (chat?.type === 'private' || isSecret) ? chat?.members?.find(id => id !== currentUser.id) : null;
 
+  // Единая точка применения загруженного списка сообщений — используется и
+  // при мгновенном показе из кэша, и когда приходит свежий ответ с сервера,
+  // чтобы оба пути вели себя идентично (скролл, "непрочитано выше" и т.д.).
+  function applyLoadedMessages(msgs, hasMore, unreadCount) {
+    setMessages(msgs);
+    setHasMoreAbove(hasMore);
+    if (unreadCount > 0) {
+      const incoming = msgs.filter(m => m.senderId !== currentUser.id && !m.system);
+      setFirstUnreadId(incoming[incoming.length - unreadCount]?.id || null);
+    } else setFirstUnreadId(null);
+    setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+  }
+
   useEffect(() => {
     if (!chat) return;
-    setMessages([]); setText(''); setFileToSend(null); setTypingUsers(new Map());
+    latestChatIdRef.current = chat.id;
+    setText(''); setFileToSend(null); setTypingUsers(new Map());
     setReplyingTo(null); setEditingMsg(null); setShowSearch(false); setSearchQuery(''); setSearchResults([]);
     setPinnedMessageId(chat.pinnedMessageId || null);
     setPinnedIds([]); setPinnedIndex(0); setDecrypted({});
@@ -162,24 +185,39 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     }
 
     const unreadCount = chat.unread || 0;
-    setHasMoreAbove(false);
-    setLoadingMessages(true);
+
+    // Уже открывали этот чат в текущей сессии — показываем сразу из памяти,
+    // без скелетона и пустого экрана, пока свежие данные тянутся в фоне.
+    const cached = messagesCacheRef.current.get(chat.id);
+    if (cached) {
+      applyLoadedMessages(cached.messages, cached.hasMoreAbove, unreadCount);
+      setLoadingMessages(false);
+    } else {
+      setMessages([]);
+      setHasMoreAbove(false);
+      setLoadingMessages(true);
+    }
+
     fetch(`${API_URL}/messages/${chat.id}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
       .then(msgs => {
+        if (latestChatIdRef.current !== chat.id) return; // пользователь уже ушёл в другой чат — ответ устарел
         setLoadingMessages(false);
-        setMessages(msgs);
-        setHasMoreAbove(msgs.length >= 60);
-        if (unreadCount > 0) {
-          const incoming = msgs.filter(m => m.senderId !== currentUser.id && !m.system);
-          setFirstUnreadId(incoming[incoming.length - unreadCount]?.id || null);
-        } else setFirstUnreadId(null);
-        setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+        applyLoadedMessages(msgs, msgs.length >= 60, unreadCount);
       })
-      .catch(() => { setLoadingMessages(false); });
+      .catch(() => { if (latestChatIdRef.current === chat.id) setLoadingMessages(false); });
 
     if (socket) { socket.emit('join_chat', chat.id); socket.emit('read_messages', { chatId: chat.id }); }
   }, [chat?.id]);
+
+  // Зеркалим messages/hasMoreAbove в кэш при каждом изменении — так кэш
+  // остаётся актуальным независимо от того, что именно их поменяло (новое
+  // сообщение, реакция, правка, подгрузка старых сообщений и т.п.), без
+  // необходимости трогать каждый отдельный вызов setMessages.
+  useEffect(() => {
+    if (!chat?.id) return;
+    messagesCacheRef.current.set(chat.id, { messages, hasMoreAbove });
+  }, [messages, hasMoreAbove, chat?.id]);
 
   useEffect(() => {
     if (!socket) return;
@@ -415,6 +453,29 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   function showAlert(msg) { setSendError(msg); setTimeout(() => setSendError(''), 3000); }
   function askConfirm(message, onConfirm) { setConfirmDialog({ message, onConfirm }); }
 
+  // Загрузка вложения (фото/файл/голос/видео-кружок). В секретных чатах байты
+  // шифруются на устройстве до аплоада (сервер получает и хранит только
+  // непрозрачный шифротекст — те же гарантии, что и для текста), обычные
+  // чаты грузят как раньше. Возвращает объект message.file/voice/videoNote
+  // с оригинальными именем/типом/размером (сервер их не видит для секретных).
+  async function uploadAttachment(blob, filename, mimetype) {
+    let uploadBlob = blob, uploadName = filename;
+    if (isSecret) {
+      if (!otherId) throw new Error('Нет собеседника для шифрования');
+      const encrypted = await encryptBytesFor(otherId, token, blob);
+      uploadBlob = new Blob([encrypted], { type: 'application/octet-stream' });
+      uploadName = `${filename.replace(/\.[^.]+$/, '')}.enc`;
+    }
+    const form = new FormData();
+    form.append('file', uploadBlob, uploadName);
+    const res = await fetch(`${API_URL}/upload`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
+    const data = await res.json();
+    if (!res.ok || !data.url) throw new Error(data.error || 'Ошибка загрузки');
+    return isSecret
+      ? { url: data.url, name: filename, size: blob.size ?? blob.length, mimetype }
+      : data;
+  }
+
   async function send(scheduledAt = null) {
     if (editingMsg) {
       if (!text.trim()) return;
@@ -428,16 +489,30 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     if (!text.trim() && !fileToSend) return;
     if (!socket || !chat) return;
 
-    // Секретный чат — шифруем текст на устройстве (E2E), файлы/голос не поддерживаются
+    // Секретный чат — шифруем текст и вложение на устройстве (E2E) перед отправкой.
+    // Запланированная отправка/офлайн-очередь для секретных чатов не поддерживаются
+    // (как и раньше) — это отдельная, более простая ветка.
     if (isSecret) {
-      if (!text.trim()) { showAlert('В секретных чатах поддерживается только текст'); return; }
       if (!otherId) return;
-      let cipher;
-      try { cipher = await encryptFor(otherId, token, text.trim()); }
-      catch { showAlert('Не удалось зашифровать — у собеседника нет ключа (пусть зайдёт в приложение)'); return; }
-      socket.emit('send_message', { chatId: chat.id, text: cipher, enc: true, replyTo: replyingTo?.id || null, burnAfter: burnAfter || null });
+      let cipherText = null;
+      if (text.trim()) {
+        try { cipherText = await encryptFor(otherId, token, text.trim()); }
+        catch { showAlert('Не удалось зашифровать — у собеседника нет ключа (пусть зайдёт в приложение)'); return; }
+      }
+      let fileData = null;
+      if (fileToSend) {
+        setUploading(true);
+        try { fileData = await uploadAttachment(fileToSend, fileToSend.name, fileToSend.type); }
+        catch (e) {
+          setUploading(false);
+          showAlert('Не удалось загрузить файл: ' + (e.message || 'ошибка сети'));
+          return;
+        }
+        setUploading(false);
+      }
+      socket.emit('send_message', { chatId: chat.id, text: cipherText, file: fileData, enc: true, replyTo: replyingTo?.id || null, burnAfter: burnAfter || null });
       tap('light');
-      setText(''); setReplyingTo(null);
+      setText(''); setFileToSend(null); setReplyingTo(null);
       if (socket) socket.emit('stop_typing', { chatId: chat.id });
       return;
     }
@@ -445,13 +520,8 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     let fileData = null;
     if (fileToSend) {
       setUploading(true);
-      const form = new FormData();
-      form.append('file', fileToSend);
       try {
-        const res = await fetch(`${API_URL}/upload`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Ошибка загрузки');
-        fileData = data;
+        fileData = await uploadAttachment(fileToSend, fileToSend.name, fileToSend.type);
       } catch (e) {
         setUploading(false);
         setSendError('Не удалось загрузить файл: ' + (e.message || 'ошибка сети'));
@@ -794,15 +864,14 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
       const ext = recMime.includes('mp4') ? 'm4a' : recMime.includes('ogg') ? 'ogg' : 'webm';
       const blobType = recMime || 'audio/webm';
       const blob = new Blob(audioChunksRef.current, { type: blobType });
-      const form = new FormData();
-      form.append('file', blob, `voice_${Date.now()}.${ext}`);
 
       setUploading(true);
       try {
-        const res = await fetch(`${API_URL}/upload`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
-        const data = await res.json();
-        if (!res.ok || !data.url) throw new Error(data.error || 'Upload failed');
-        socket.emit('send_message', { chatId: chat.id, voice: { url: data.url, duration }, replyTo: replyingTo?.id || null });
+        // isSecret раньше не проверялся вообще здесь — голосовые уходили
+        // незашифрованными даже в секретных чатах. uploadAttachment шифрует
+        // байты на устройстве перед загрузкой, если чат секретный.
+        const data = await uploadAttachment(blob, `voice_${Date.now()}.${ext}`, blobType);
+        socket.emit('send_message', { chatId: chat.id, voice: { url: data.url, duration }, enc: !!isSecret, replyTo: replyingTo?.id || null });
         setReplyingTo(null);
       } catch (e) { console.error('Voice upload error:', e); }
       setUploading(false);
@@ -812,14 +881,11 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
 
   async function sendVideoNote(blob, ext = 'webm') {
     setShowVideoRecorder(false);
-    const form = new FormData();
-    form.append('file', blob, `videonote_${Date.now()}.${ext}`);
     setUploading(true);
     try {
-      const res = await fetch(`${API_URL}/upload`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: form });
-      const data = await res.json();
-      if (!res.ok || !data.url) throw new Error(data.error || 'Upload failed');
-      socket.emit('send_message', { chatId: chat.id, videoNote: { url: data.url }, replyTo: replyingTo?.id || null, burnAfter: burnAfter || null });
+      // Тот же незашифрованный путь был и для видео-кружков в секретных чатах.
+      const data = await uploadAttachment(blob, `videonote_${Date.now()}.${ext}`, blob.type || 'video/webm');
+      socket.emit('send_message', { chatId: chat.id, videoNote: { url: data.url }, enc: !!isSecret, replyTo: replyingTo?.id || null, burnAfter: burnAfter || null });
       setReplyingTo(null);
     } catch (e) { console.error('VideoNote upload error:', e); }
     setUploading(false);
@@ -1007,7 +1073,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
               <Fragment key={item.msg.id}>
               {item.msg.id === firstUnreadId && <div className="unread-divider">Непрочитанные сообщения</div>}
               <MessageItem
-                msg={item.msg.enc ? { ...item.msg, text: decrypted[item.msg.id] ?? '🔒 Расшифровка…' } : item.msg}
+                msg={item.msg.enc && item.msg.text ? { ...item.msg, text: decrypted[item.msg.id] ?? '🔒 Расшифровка…' } : item.msg}
                 isOwn={item.msg.senderId === currentUser.id}
                 showSender={chat.type === 'group' && item.isGroupStart}
                 groupStart={item.isGroupStart}
@@ -1031,6 +1097,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
                 chatMemberCount={chat.members?.length || 2}
                 token={token}
                 onVote={handleVote}
+                otherId={otherId}
               />
               </Fragment>
             )
@@ -1144,20 +1211,20 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
               <div className="attach-menu">
                 {/* Input INSIDE label — most reliable on iOS/Android/Desktop */}
                 <label className="attach-menu-item">
-                  <span className="attach-menu-icon">🖼</span> Фото / Видео
+                  <span className="attach-menu-icon"><ImageIcon /></span> Фото / Видео
                   <input type="file" accept="image/*,video/*" style={{ display: 'none' }}
                     onChange={e => { const f = e.target.files?.[0]; if (f) setFileToSend(f); e.target.value = ''; setShowAttachMenu(false); }} />
                 </label>
                 <label className="attach-menu-item">
-                  <span className="attach-menu-icon">📎</span> Файл / Документ
+                  <span className="attach-menu-icon"><FileIcon /></span> Файл / Документ
                   <input type="file" style={{ display: 'none' }}
                     onChange={e => { const f = e.target.files?.[0]; if (f) setFileToSend(f); e.target.value = ''; setShowAttachMenu(false); }} />
                 </label>
                 <button className="attach-menu-item" onClick={() => { setShowPollModal(true); setShowAttachMenu(false); }}>
-                  <span className="attach-menu-icon">📊</span> Опрос
+                  <span className="attach-menu-icon"><BarChartIcon /></span> Опрос
                 </button>
                 <button className="attach-menu-item" onClick={shareLocation}>
-                  <span className="attach-menu-icon">📍</span> Геолокация
+                  <span className="attach-menu-icon"><MapPinIcon /></span> Геолокация
                 </button>
               </div>
             )}
@@ -1218,7 +1285,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
             </>
           ) : (
             <button
-              className="send-btn" onClick={send} disabled={uploading}
+              className="send-btn" onClick={() => send()} disabled={uploading}
               title="Отправить (удерж. — запланировать)"
               onContextMenu={e => { e.preventDefault(); openSchedule(); }}
               onTouchStart={() => { sendPressRef.current = setTimeout(() => { sendPressRef.current = 'fired'; openSchedule(); }, 500); }}
@@ -1302,6 +1369,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
           <div className="modal">
             <h3>Общие медиа</h3>
             <MediaTabs mediaMsgs={mediaMsgs} fileMsgs={fileMsgs} linkMsgs={linkMsgs}
+              otherId={otherId} token={token}
               onImageClick={(url) => { setShowMedia(false); setLightboxImg(url); }} />
             <div className="modal-actions">
               <button className="btn btn-secondary" onClick={() => setShowMedia(false)}>Закрыть</button>
@@ -1349,10 +1417,10 @@ function ChatActions({ chat, isBlocked, burnAfter, setBurnAfter, onSearch, onMed
   const BURN = [{ l: 'Выкл', v: null }, { l: '5 сек', v: 5 }, { l: '1 мин', v: 60 }, { l: '1 час', v: 3600 }, { l: '24 ч', v: 86400 }];
   return (
     <div className="chat-actions">
-      <button className="chat-action-row" onClick={onSearch}><span>🔍</span> Поиск по сообщениям</button>
-      <button className="chat-action-row" onClick={onMedia}><span>🖼</span> Общие медиа</button>
-      <button className="chat-action-row" onClick={onScheduled}><span>⏰</span> Запланированные</button>
-      <button className="chat-action-row" onClick={onSelect}><span>✅</span> Выбрать сообщения</button>
+      <button className="chat-action-row" onClick={onSearch}><SearchIcon /> Поиск по сообщениям</button>
+      <button className="chat-action-row" onClick={onMedia}><ImageIcon /> Общие медиа</button>
+      <button className="chat-action-row" onClick={onScheduled}><ClockIcon /> Запланированные</button>
+      <button className="chat-action-row" onClick={onSelect}><CheckSquareIcon /> Выбрать сообщения</button>
 
       <div className="chat-action-burn">
         <div className="chat-action-burn-label"><span>🔥</span> Автоудаление</div>
@@ -1366,10 +1434,10 @@ function ChatActions({ chat, isBlocked, burnAfter, setBurnAfter, onSearch, onMed
 
       <button className="chat-action-row" onClick={onClear}><span>🧹</span> Очистить историю</button>
       {chat.type === 'private' && (
-        <button className="chat-action-row" onClick={onBlock}><span>{isBlocked ? '✅' : '🚫'}</span> {isBlocked ? 'Разблокировать' : 'Заблокировать'}</button>
+        <button className="chat-action-row" onClick={onBlock}>{isBlocked ? <CheckIcon /> : <SlashIcon />} {isBlocked ? 'Разблокировать' : 'Заблокировать'}</button>
       )}
       <button className="chat-action-row danger" onClick={onDelete}>
-        <span>🗑</span> {chat.type === 'group' ? 'Удалить группу' : 'Удалить чат'}
+        <TrashIcon /> {chat.type === 'group' ? 'Удалить группу' : 'Удалить чат'}
       </button>
     </div>
   );
@@ -1445,7 +1513,30 @@ function PollComposer({ onCreate, onClose }) {
   );
 }
 
-function MediaTabs({ mediaMsgs, fileMsgs, linkMsgs, onImageClick }) {
+// Вложение в гриде "Общие медиа" — для секретных чатов file.url ведёт на
+// шифротекст, поэтому каждый элемент сам скачивает и расшифровывает себя
+// через useDecryptedMedia (по одному хук-вызову на компонент — это отдельный
+// компонент на каждый элемент списка, а не хук внутри .map, так что Rules of
+// Hooks не нарушаются).
+function MediaGridItem({ msg, otherId, token, onImageClick }) {
+  const media = useDecryptedMedia(msg.file.url, msg.enc ? otherId : null, token, msg.file.mimetype);
+  if (media.loading) return <div className="media-grid-item" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🔒</div>;
+  return msg.file.mimetype?.startsWith('image/')
+    ? <img src={media.src} alt="" className="media-grid-item" onClick={() => onImageClick(media.src)} />
+    : <a href={media.src} target="_blank" rel="noreferrer" className="media-grid-item media-grid-video">🎬</a>;
+}
+
+function MediaFileRow({ msg, otherId, token }) {
+  const media = useDecryptedMedia(msg.file.url, msg.enc ? otherId : null, token, msg.file.mimetype);
+  return (
+    <a href={media.src || undefined} target="_blank" rel="noreferrer" download={msg.file.name} className="media-file-row">
+      <span className="media-file-ic">{media.loading ? '🔒' : '📎'}</span>
+      <span className="media-file-nm">{msg.file.name}</span>
+    </a>
+  );
+}
+
+function MediaTabs({ mediaMsgs, fileMsgs, linkMsgs, otherId, token, onImageClick }) {
   const [tab, setTab] = useState('media');
   return (
     <div className="media-tabs-wrap">
@@ -1458,22 +1549,14 @@ function MediaTabs({ mediaMsgs, fileMsgs, linkMsgs, onImageClick }) {
         {tab === 'media' && (
           mediaMsgs.length === 0 ? <div className="empty-state" style={{ padding: 20 }}>Нет медиа</div> : (
             <div className="media-grid">
-              {mediaMsgs.map(m => m.file.mimetype?.startsWith('image/')
-                ? <img key={m.id} src={m.file.url} alt="" className="media-grid-item" onClick={() => onImageClick(m.file.url)} />
-                : <a key={m.id} href={m.file.url} target="_blank" rel="noreferrer" className="media-grid-item media-grid-video">🎬</a>
-              )}
+              {mediaMsgs.map(m => <MediaGridItem key={m.id} msg={m} otherId={otherId} token={token} onImageClick={onImageClick} />)}
             </div>
           )
         )}
         {tab === 'files' && (
           fileMsgs.length === 0 ? <div className="empty-state" style={{ padding: 20 }}>Нет файлов</div> : (
             <div className="media-file-list">
-              {fileMsgs.map(m => (
-                <a key={m.id} href={m.file.url} target="_blank" rel="noreferrer" download={m.file.name} className="media-file-row">
-                  <span className="media-file-ic">📎</span>
-                  <span className="media-file-nm">{m.file.name}</span>
-                </a>
-              ))}
+              {fileMsgs.map(m => <MediaFileRow key={m.id} msg={m} otherId={otherId} token={token} />)}
             </div>
           )
         )}

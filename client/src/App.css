@@ -54,9 +54,18 @@
 [data-theme="light"] .msg-out .msg-sender { color: #1c2733; }
 [data-theme="light"] .msg-time { color: rgba(28,39,51,0.45); }
 [data-theme="light"] .msg-read { color: rgba(28,39,51,0.45); }
+[data-theme="light"] .msg-edited-label { color: rgba(28,39,51,0.4); }
+[data-theme="light"] .voice-bar { background: rgba(28,39,51,0.25); }
+[data-theme="light"] .voice-duration { color: rgba(28,39,51,0.55); }
+/* Белые полупрозрачные bg/hover были рассчитаны только на тёмные пузыри —
+   на светлом msg-in (#fff) они были на грани невидимости. */
+[data-theme="light"] .reaction-chip { background: rgba(0,0,0,0.06); border-color: rgba(0,0,0,0.1); }
+[data-theme="light"] .reaction-chip:hover { background: rgba(0,0,0,0.1); }
+[data-theme="light"] .reaction-btn:hover, [data-theme="light"] .msg-menu-btn:hover { background: rgba(0,0,0,0.06); }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  letter-spacing: -0.01em;
   background: var(--bg-primary);
   color: var(--text-primary);
   height: 100vh;
@@ -66,8 +75,14 @@ body {
 #root { height: 100vh; display: flex; flex-direction: column; }
 
 /* ── Scrollbar ───────────────────────────────────── */
-::-webkit-scrollbar { width: 5px; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-muted) 40%, transparent);
+  border-radius: 6px;
+  transition: background 0.2s;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 
 /* ── Auth ────────────────────────────────────────── */
 .auth-wrapper {
@@ -337,7 +352,7 @@ body {
   cursor: pointer; transition: background 0.15s;
 }
 .user-item:hover { background: var(--bg-hover); }
-.user-item.selected { background: rgba(43,127,220,0.2); }
+.user-item.selected { background: color-mix(in srgb, var(--accent) 20%, transparent); }
 .user-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .user-name { font-size: 15px; font-weight: 600; color: var(--text-primary); }
 .user-handle { font-size: 12px; color: var(--accent); opacity: 0.8; }
@@ -538,7 +553,7 @@ body {
   display: flex; align-items: center; gap: 4px; transition: all 0.15s; user-select: none;
 }
 .reaction-chip:hover { background: rgba(255,255,255,0.18); transform: scale(1.08); }
-.reaction-chip.mine { background: rgba(43,127,220,0.3); border-color: var(--accent); }
+.reaction-chip.mine { background: color-mix(in srgb, var(--accent) 30%, transparent); border-color: var(--accent); }
 .reaction-count { font-size: 12px; color: var(--text-secondary); }
 
 .reaction-picker-wrap { position: relative; }
@@ -674,7 +689,7 @@ body {
   background: rgba(0,0,0,0.15); border-radius: 8px; padding: 5px 9px; cursor: pointer;
 }
 [data-theme="light"] .msg-in .reply-quote,
-[data-theme="light"] .msg-out .reply-quote { background: rgba(43,127,220,0.08); }
+[data-theme="light"] .msg-out .reply-quote { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .reply-quote-bar { width: 3px; background: var(--accent); border-radius: 2px; flex-shrink: 0; }
 .reply-quote-content { min-width: 0; }
 .reply-quote-sender { font-size: 12px; font-weight: 700; color: var(--accent); }
@@ -707,6 +722,7 @@ body {
 .msg-menu-btn {
   background: none; border: none; color: var(--text-muted); cursor: pointer;
   padding: 3px 5px; border-radius: 6px; font-size: 14px; opacity: 0; transition: all 0.15s;
+  display: flex; align-items: center; justify-content: center;
 }
 .msg-bubble:hover .msg-menu-btn { opacity: 1; }
 .msg-menu-btn:hover { background: rgba(255,255,255,0.1); color: var(--text-primary); }
@@ -738,7 +754,7 @@ body {
 .voice-play-btn:hover { background: var(--accent-hover); }
 .voice-waveform { flex: 1; height: 28px; display: flex; align-items: center; gap: 2px; }
 .voice-bar { width: 2.5px; background: rgba(255,255,255,0.4); border-radius: 2px; transition: background 0.2s; }
-.voice-bar.played { background: rgba(100,181,246,0.9); }
+.voice-bar.played { background: var(--accent); }
 .voice-duration { font-size: 11px; color: rgba(255,255,255,0.6); flex-shrink: 0; }
 
 .voice-record-btn {
@@ -860,7 +876,7 @@ body {
 }
 .profile-page-header .avatar.lg {
   width: 88px; height: 88px; font-size: 32px;
-  box-shadow: 0 6px 20px rgba(43,127,220,0.35);
+  /* box-shadow (accent-glow, theme-aware) set in the Premium Polish v3 section below */
 }
 .profile-page-username { font-size: 17px; font-weight: 700; margin-top: 2px; }
 .profile-page-displayname { font-size: 20px; font-weight: 700; margin-top: 8px; color: var(--text-primary); }
@@ -977,11 +993,11 @@ body {
 .select-mode { cursor: pointer; }
 .select-mode .msg-bubble { pointer-events: none; }
 
-.active-icon { color: var(--accent); background: rgba(43,127,220,0.15); }
+.active-icon { color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, transparent); }
 
 /* ── Drag & drop ─────────────────────────────────── */
 .messages-wrap { position: relative; }
-.messages-wrap.dragging { background: rgba(43,127,220,0.04); }
+.messages-wrap.dragging { background: color-mix(in srgb, var(--accent) 4%, transparent); }
 .drop-overlay {
   position: absolute; inset: 8px; border: 2px dashed var(--accent); border-radius: 16px;
   background: rgba(23,33,43,0.85); display: flex; flex-direction: column; align-items: center;
@@ -993,10 +1009,13 @@ body {
 .chat-item-menu-btn {
   background: none; border: none; color: var(--text-muted); cursor: pointer;
   padding: 2px 6px; border-radius: 6px; font-size: 14px; opacity: 0; transition: all 0.15s;
+  display: flex; align-items: center; justify-content: center;
 }
 .chat-item:hover .chat-item-menu-btn { opacity: 1; }
 .chat-item-menu-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
 .chat-item-menu { top: 22px; right: 0; }
+.chat-muted-icon { display: inline-flex; }
+.chat-muted-icon svg { width: 12px; height: 12px; }
 
 .folder-tabs {
   display: flex; gap: 6px; padding: 8px 12px; overflow-x: auto; border-bottom: 1px solid var(--border);
@@ -1310,13 +1329,6 @@ body {
   /* Аватарки в списке — мягкое свечение */
   .chat-item .avatar, .user-item .avatar {
     box-shadow: 0 0 14px rgba(0,229,192,0.18);
-  }
-
-  /* Активный чат — неоновая полоса слева */
-  .chat-item.active::before {
-    content: ''; position: absolute; left: 0; top: 8px; bottom: 8px;
-    width: 3px; border-radius: 0 3px 3px 0;
-    background: var(--accent); box-shadow: 0 0 10px var(--accent-glow);
   }
 
   /* Табы сайдбара — таблеточный фон */
@@ -2139,6 +2151,7 @@ body {
 }
 .chat-action-row:hover { background: var(--bg-hover); }
 .chat-action-row span { font-size: 18px; width: 22px; text-align: center; }
+.chat-action-row svg { width: 18px; height: 18px; flex-shrink: 0; }
 .chat-action-row.danger { color: var(--danger); }
 .chat-action-burn { padding: 10px; }
 .chat-action-burn-label { display: flex; align-items: center; gap: 12px; font-size: 14px; margin-bottom: 8px; }
@@ -2262,3 +2275,174 @@ body {
 .crash-screen h2 { font-size: 20px; margin: 0; }
 .crash-screen p { color: var(--text-secondary); font-size: 14px; margin: 0 0 8px; max-width: 320px; }
 .crash-screen .btn { padding: 12px 28px; font-size: 15px; }
+
+/* ══════════════════════════════════════════════════════════════════
+   PREMIUM POLISH v2 — glass surfaces, depth, motion
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── Glass footer (headers/input bar already glass from the earlier polish pass) ── */
+.sidebar-footer {
+  background: color-mix(in srgb, var(--bg-secondary) 82%, transparent);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+}
+.sidebar-header, .chat-header { position: relative; }
+.sidebar-header::after, .chat-header::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent-glow), transparent);
+  opacity: 0.55; pointer-events: none;
+}
+
+/* ── Glass floating surfaces ── */
+.modal, .sticker-picker, .emoji-picker, .reaction-picker, .msg-context-menu, .attach-menu {
+  background: color-mix(in srgb, var(--bg-secondary) 86%, transparent);
+  backdrop-filter: blur(28px) saturate(170%);
+  -webkit-backdrop-filter: blur(28px) saturate(170%);
+}
+.modal { box-shadow: 0 24px 64px var(--shadow), 0 0 0 1px color-mix(in srgb, var(--accent) 10%, transparent); }
+.attach-menu-icon { display: inline-flex; align-items: center; justify-content: center; width: 20px; flex-shrink: 0; }
+.attach-menu-icon svg { width: 17px; height: 17px; }
+.attach-menu-item:hover .attach-menu-icon { color: var(--accent); }
+
+/* ── Chat list: soft floating cards instead of flat rows ── */
+.chat-item {
+  margin: 2px 6px; border-radius: 14px;
+  transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+.chat-item:hover { transform: translateX(2px); }
+.chat-item.active {
+  background: linear-gradient(120deg, var(--bg-active), transparent 85%);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.chat-item.active::before {
+  content: ''; position: absolute; left: 0; top: 10px; bottom: 10px;
+  width: 3px; border-radius: 3px;
+  background: var(--accent); box-shadow: 0 0 10px var(--accent-glow);
+}
+
+/* ── Message bubbles: glass sheen + gentle lift on hover ── */
+.msg-bubble {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.msg-out { box-shadow: 0 2px 10px var(--shadow), inset 0 1px 0 rgba(255,255,255,0.07); }
+.msg-in  { box-shadow: 0 2px 10px var(--shadow), inset 0 1px 0 rgba(255,255,255,0.04); }
+.msg-bubble:hover { transform: translateY(-1px); box-shadow: 0 6px 18px var(--shadow), inset 0 1px 0 rgba(255,255,255,0.08); }
+
+/* ── Buttons: diagonal sheen sweep on hover ── */
+.send-btn, .auth-btn, .btn-primary {
+  position: relative; overflow: hidden;
+}
+.send-btn::before, .auth-btn::before, .btn-primary::before {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(115deg, transparent 40%, rgba(255,255,255,0.35) 50%, transparent 60%);
+  background-size: 220% 220%; background-position: 150% 0;
+  transition: background-position 0.55s ease;
+  pointer-events: none;
+}
+.send-btn:hover::before, .auth-btn:hover::before, .btn-primary:hover::before { background-position: -50% 0; }
+
+/* ── Living backgrounds: slow drifting glow instead of static gradient ──
+   z-index:-1 keeps this strictly behind chat-window's own children without
+   having to touch position/z-index on arbitrary descendants (some of which
+   are fixed-position modals/overlays elsewhere in the tree). */
+.chat-window::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: -1;
+  background:
+    radial-gradient(ellipse 60% 40% at 85% 8%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 60%),
+    radial-gradient(ellipse 50% 35% at 8% 95%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 60%);
+  animation: gradientPulse 10s ease-in-out infinite alternate;
+}
+
+.no-chat-icon { animation: noChatFloat 4.5s ease-in-out infinite; }
+@keyframes noChatFloat {
+  0%, 100% { transform: translateY(0); box-shadow: 0 0 40px var(--accent-glow); }
+  50%      { transform: translateY(-6px); box-shadow: 0 0 56px var(--accent-glow); }
+}
+
+/* ── Auth card: subtle animated gradient edge ── */
+.auth-box {
+  position: relative;
+  background:
+    linear-gradient(var(--bg-secondary), var(--bg-secondary)) padding-box,
+    linear-gradient(135deg, var(--accent), transparent 40%, transparent 60%, var(--accent)) border-box;
+  border: 1px solid transparent;
+  background-size: 100% 100%, 260% 260%;
+  animation: authAppear 0.4s cubic-bezier(0.34,1.2,0.64,1) both, authEdge 9s ease infinite;
+}
+@keyframes authEdge {
+  0%, 100% { background-position: 0% 0%, 0% 50%; }
+  50%      { background-position: 0% 0%, 100% 50%; }
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   PREMIUM POLISH v3 — passcode lock, stories, profile, toasts, calls
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── Passcode lock: this is the very first screen on every launch ── */
+.passcode-overlay { overflow: hidden; } /* already position:fixed from the original rule above */
+.passcode-overlay::before {
+  content: ''; position: absolute; inset: -50%; pointer-events: none; z-index: 0;
+  background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 60%);
+  animation: gradientPulse 8s ease-in-out infinite alternate;
+}
+.passcode-box { position: relative; z-index: 1; animation: authAppear 0.4s cubic-bezier(0.34,1.2,0.64,1) both; }
+.passcode-icon { filter: drop-shadow(0 0 16px var(--accent-glow)); }
+.passcode-dot { transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease, border-color 0.2s ease; }
+.passcode-dot.filled { box-shadow: 0 0 10px var(--accent-glow); transform: scale(1.15); }
+.passcode-key {
+  background: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
+  backdrop-filter: blur(12px);
+  transition: transform 0.12s ease, border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+.passcode-key:hover { border-color: var(--accent); box-shadow: 0 0 16px var(--accent-glow); }
+.passcode-key:active { transform: scale(0.92); }
+
+/* ── Stories: full-screen viewer had zero chrome ── */
+.story-viewer-head {
+  padding: 8px 12px; border-radius: 20px; margin: -8px -12px 0;
+  background: linear-gradient(180deg, rgba(0,0,0,0.4), transparent);
+}
+.story-viewer-media { animation: storyMediaIn 0.25s ease; }
+@keyframes storyMediaIn { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: scale(1); } }
+.story-close {
+  width: 34px; height: 34px; border-radius: 50%;
+  background: rgba(255,255,255,0.12); backdrop-filter: blur(8px);
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+.story-close:hover { background: rgba(255,255,255,0.22); transform: scale(1.08); }
+.story-progress-fill.active, .story-progress-fill.done { box-shadow: 0 0 8px rgba(255,255,255,0.5); }
+.story-ring { box-shadow: 0 0 14px rgba(220,39,67,0.25); transition: transform 0.15s ease; }
+.story-avatar:hover .story-ring { transform: scale(1.06); }
+
+/* ── Profile page header: ambient glow + fix stale blue shadow on avatar ── */
+.profile-page-header { position: relative; }
+.profile-page-header::before {
+  content: ''; position: absolute; inset: 0; pointer-events: none; z-index: -1;
+  background: radial-gradient(ellipse 70% 60% at 50% 0%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 70%);
+}
+.profile-page-header .avatar.lg { box-shadow: 0 6px 24px var(--accent-glow); }
+.status-select:focus { box-shadow: 0 0 0 3px var(--accent-glow); }
+
+/* ── Toasts + generic empty states ── */
+.toast-item {
+  background: color-mix(in srgb, var(--bg-secondary) 88%, transparent);
+  backdrop-filter: blur(20px) saturate(160%);
+  box-shadow: 0 12px 32px var(--shadow), 0 0 0 1px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.empty-state svg { animation: noChatFloat 4.5s ease-in-out infinite; }
+
+/* ── Calls: neon glow on the accept/reject buttons, glass call tiles ── */
+.call-btn.accept { box-shadow: 0 0 20px color-mix(in srgb, var(--online) 45%, transparent); }
+.call-btn.reject, .call-btn.end { box-shadow: 0 0 20px color-mix(in srgb, var(--danger) 45%, transparent); }
+.group-call-tile {
+  background: color-mix(in srgb, var(--bg-secondary) 90%, black);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+/* ── Respect reduced-motion preference ── */
+@media (prefers-reduced-motion: reduce) {
+  .chat-window::before, .no-chat-icon, .auth-box,
+  .auth-wrapper::before, .auth-wrapper::after,
+  .passcode-overlay::before, .story-viewer-media, .empty-state svg { animation: none !important; }
+}

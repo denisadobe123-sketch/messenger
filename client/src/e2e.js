@@ -77,6 +77,29 @@ export async function decryptFrom(otherUserId, token, payload) {
   } catch { return '🔒 Не удалось расшифровать'; }
 }
 
+// Байтовые варианты для вложений (фото/файл/голосовое/видео-кружок) в
+// секретных чатах — та же схема ECDH+AES-GCM, но без TextEncoder/base64:
+// на диск/по сети уходит [IV(12 байт)][ciphertext] одним куском.
+export async function encryptBytesFor(otherUserId, token, data) {
+  const key = await deriveSharedKey(otherUserId, token);
+  const buf = data instanceof Blob ? await data.arrayBuffer() : data;
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await subtle.encrypt({ name: 'AES-GCM', iv }, key, buf);
+  const out = new Uint8Array(iv.length + ct.byteLength);
+  out.set(iv, 0);
+  out.set(new Uint8Array(ct), iv.length);
+  return out.buffer;
+}
+
+export async function decryptBytesFor(otherUserId, token, data) {
+  const key = await deriveSharedKey(otherUserId, token);
+  const buf = data instanceof Blob ? await data.arrayBuffer() : data;
+  const bytes = new Uint8Array(buf);
+  const iv = bytes.slice(0, 12);
+  const ct = bytes.slice(12);
+  return subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
+}
+
 export function clearE2E() {
   sharedKeyCache.clear();
   _myKeys = null;
