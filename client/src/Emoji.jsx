@@ -18,6 +18,27 @@ export function emojiUrl(emoji) {
   return `${APPLE_PNG_BASE}${twemoji.convert.toCodePoint(emoji)}.png`;
 }
 
+// Shared with format.jsx's inline-text emoji-ification and MessageItem's
+// "jumbo emoji" detection below, so both use the exact same definition of
+// what counts as an emoji sequence.
+export const EMOJI_RE = /\p{Extended_Pictographic}(️)?(‍\p{Extended_Pictographic}(️)?)*/gu;
+
+// Telegram/WhatsApp render a message that's ONLY 1-3 emoji (nothing else,
+// spaces allowed) large and without a bubble background — like a sticker.
+// Returns the list of emoji to render jumbo, or null if msg.text doesn't
+// qualify (mixed with real text, more than 3 emoji, etc).
+export function jumboEmojiList(text) {
+  if (!text) return null;
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  const matches = [...trimmed.matchAll(EMOJI_RE)];
+  if (!matches.length || matches.length > 3) return null;
+  const matchedLength = matches.reduce((n, m) => n + m[0].length, 0);
+  const nonEmojiChars = trimmed.replace(/\s/g, '').length - matchedLength;
+  if (nonEmojiChars !== 0) return null; // leftover real text — not jumbo-eligible
+  return matches.map(m => m[0]);
+}
+
 // Sized via `1em` in .emoji-img (App.css) so it inherits whatever font-size
 // the surrounding button/span already had — no need to pass a size per call site.
 export default function Emoji({ text, className = '', style }) {

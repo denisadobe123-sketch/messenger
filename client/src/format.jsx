@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import Emoji from './Emoji.jsx';
+import Emoji, { EMOJI_RE } from './Emoji.jsx';
 
 // Лёгкий парсер markdown-подобного форматирования в стиле Telegram.
 // Поддержка: ```блок кода```, `код`, **жирный**, __подчёркнутый__,
@@ -57,7 +57,6 @@ function mentionify(text, keyBase) {
 // font, so they looked inconsistent with everything else. mentionify() is
 // the deepest leaf that plain (non-link, non-mention) text reaches, so
 // this is where every plain-text segment ultimately gets emoji-ified.
-const EMOJI_RE = /\p{Extended_Pictographic}(️)?(‍\p{Extended_Pictographic}(️)?)*/gu;
 function emojify(text, keyBase) {
   if (!text) return [];
   const nodes = [];

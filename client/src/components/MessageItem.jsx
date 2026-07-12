@@ -6,7 +6,7 @@ import LinkPreview from './LinkPreview.jsx';
 import { renderText, firstUrl } from '../format.jsx';
 import { useDecryptedMedia } from '../useDecryptedMedia.js';
 import { MoreIcon, ReplyIcon, CopyIcon, ForwardIcon, PinIcon, EditIcon, TrashIcon } from '../icons.jsx';
-import Emoji from '../Emoji.jsx';
+import Emoji, { jumboEmojiList } from '../Emoji.jsx';
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🔥', '🎉', '👎'];
 
@@ -169,6 +169,66 @@ function MessageItem({
         <div className="sticker-message" id={`msg-${msg.id}`}>
           <Emoji text={msg.sticker} className="sticker-emoji" />
           <span className="sticker-time">{time}</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Telegram/WhatsApp: a message that's ONLY 1-3 emoji renders big, without
+  // a bubble background — like a sticker. Without this, a lone "❤️" showed
+  // up as a tiny 1em image crammed into a narrow bubble with the reaction
+  // row overlapping its rounded corner.
+  const jumboEmojis = !msg.file && !msg.voice && !msg.videoNote && !msg.poll
+    && !msg.location && !msg.forwardOf && !msg.replyTo ? jumboEmojiList(msg.text) : null;
+
+  if (jumboEmojis) {
+    return (
+      <div
+        className={`msg-row ${isOwn ? 'row-out' : 'row-in'} ${selectMode ? 'select-mode' : ''} ${!groupStart ? 'msg-grouped' : ''}`}
+        onClick={() => selectMode && onToggleSelect?.(msg.id)}
+      >
+        {selectMode && <span className={`msg-checkbox ${selected ? 'checked' : ''}`}>{selected && '✓'}</span>}
+        <div className={`jumbo-emoji-message count-${jumboEmojis.length}`} id={`msg-${msg.id}`}>
+          <div className="jumbo-emoji-row">
+            {jumboEmojis.map((e, i) => <Emoji key={i} text={e} className="jumbo-emoji" />)}
+          </div>
+
+          {msg.reactions?.length > 0 && (
+            <div className="msg-reactions">
+              {msg.reactions.map(r => (
+                <button key={r.emoji} className={`reaction-chip ${r.userIds.includes(currentUserId) ? 'mine' : ''}`} onClick={() => handleReact(r.emoji)}>
+                  <Emoji text={r.emoji} /> <span className="reaction-count">{r.userIds.length}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="jumbo-footer">
+            <div className="reaction-picker-wrap">
+              <button className="reaction-btn" onClick={() => setShowPicker(p => !p)}><Emoji text="😊" /></button>
+              {showPicker && (
+                <div className={`reaction-picker ${isOwn ? 'reaction-picker-left' : ''}`}>
+                  {QUICK_REACTIONS.map(e => (
+                    <button key={e} className="reaction-option" onClick={() => { handleReact(e); setShowPicker(false); }}><Emoji text={e} /></button>
+                  ))}
+                  <button className="reaction-option reaction-more" onClick={() => { setShowPicker(false); setShowFullEmoji(p => !p); }}>＋</button>
+                </div>
+              )}
+              {showFullEmoji && (
+                <EmojiPicker
+                  onPick={e => { handleReact(e); setShowFullEmoji(false); }}
+                  onClose={() => setShowFullEmoji(false)}
+                  style={{ position: 'absolute', bottom: '36px', [isOwn ? 'right' : 'left']: 0, zIndex: 200 }}
+                />
+              )}
+            </div>
+            <span className="sticker-time">{time}</span>
+            {isOwn && (
+              msg.pending
+                ? <span className="msg-read msg-pending" title="В очереди">🕐</span>
+                : <span className={`msg-read ${isRead ? 'seen' : ''}`}>{isRead ? '✓✓' : '✓'}</span>
+            )}
+          </div>
         </div>
       </div>
     );
