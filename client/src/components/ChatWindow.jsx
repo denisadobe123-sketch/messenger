@@ -1265,7 +1265,6 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
               ref={inputRef}
               className="msg-input" placeholder="Написать сообщение..." value={text}
               onChange={handleTextChange} onKeyDown={onKeyDown} rows={1}
-              onFocus={() => setShowEmojiPicker(false)}
               onBlur={() => setTimeout(() => setShowFormatBar(false), 200)}
               onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'; }}
             />
@@ -1273,12 +1272,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
           <div className="sticker-picker-wrap">
             <button
               className="attach-btn emoji-toggle-btn"
-              onClick={() => {
-                // Как в Telegram: открытие пикера убирает нативную клавиатуру
-                // (блюр поля), а не всплывает поверх неё.
-                if (!showEmojiPicker) inputRef.current?.blur();
-                setShowEmojiPicker(p => !p);
-              }}
+              onClick={() => setShowEmojiPicker(p => !p)}
               title="Эмодзи и стикеры"
             >
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
