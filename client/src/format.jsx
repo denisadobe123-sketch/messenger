@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import Emoji from './Emoji.jsx';
 
 // Лёгкий парсер markdown-подобного форматирования в стиле Telegram.
 // Поддержка: ```блок кода```, `код`, **жирный**, __подчёркнутый__,
@@ -42,9 +43,30 @@ function mentionify(text, keyBase) {
   MENTION_RE.lastIndex = 0;
   while ((m = MENTION_RE.exec(text)) !== null) {
     const start = m.index + m[1].length;
-    if (start > last) nodes.push(text.slice(last, start));
+    if (start > last) nodes.push(...emojify(text.slice(last, start), `${keyBase}-p${i}`));
     nodes.push(<span key={`${keyBase}-m${i}`} className="fmt-mention">{m[2]}</span>);
     last = start + m[2].length; i++;
+  }
+  if (last < text.length) nodes.push(...emojify(text.slice(last), `${keyBase}-p${i}`));
+  return nodes.length ? nodes : [text];
+}
+
+// Reactions/stickers/the picker already render via <Emoji> (Emoji.jsx) —
+// this is the missing piece: emoji typed into the message TEXT itself still
+// fell through to here as plain characters and rendered with the OS emoji
+// font, so they looked inconsistent with everything else. mentionify() is
+// the deepest leaf that plain (non-link, non-mention) text reaches, so
+// this is where every plain-text segment ultimately gets emoji-ified.
+const EMOJI_RE = /\p{Extended_Pictographic}(️)?(‍\p{Extended_Pictographic}(️)?)*/gu;
+function emojify(text, keyBase) {
+  if (!text) return [];
+  const nodes = [];
+  let last = 0, m, i = 0;
+  EMOJI_RE.lastIndex = 0;
+  while ((m = EMOJI_RE.exec(text)) !== null) {
+    if (m.index > last) nodes.push(text.slice(last, m.index));
+    nodes.push(<Emoji key={`${keyBase}-e${i}`} text={m[0]} />);
+    last = m.index + m[0].length; i++;
   }
   if (last < text.length) nodes.push(text.slice(last));
   return nodes.length ? nodes : [text];

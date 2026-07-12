@@ -1540,16 +1540,29 @@ body {
 .emoji-btn:active { transform: scale(0.92); }
 .emoji-empty { grid-column: 1 / -1; text-align: center; color: var(--text-muted); padding: 20px; font-size: 13px; }
 
-/* Twemoji <img> replacing the OS emoji glyph — sized off the parent's
+/* Apple-style <img> replacing the OS emoji glyph — sized off the parent's
    font-size so every existing button/span size (reaction-chip, sticker-emoji,
    emoji-btn, etc.) keeps working without per-usage overrides. */
 .emoji-img { width: 1em; height: 1em; vertical-align: -0.2em; object-fit: contain; }
 
-.emoji-picker-popup {
-  position: absolute; bottom: 52px; right: 0; z-index: 150;
+/* Docked below the composer as a normal flex item (not an absolute popup) —
+   takes the same place a native keyboard would, like Telegram: opening it
+   blurs the text input (see ChatWindow.jsx), and focusing the input again
+   closes it back. .emoji-picker/.sticker-picker keep their own standalone
+   floating-card styles for other uses (e.g. the reaction picker in
+   MessageItem.jsx) — only overridden here to fill the dock instead. */
+.emoji-picker-dock {
+  flex-shrink: 0; align-self: flex-end;
+  width: 320px; height: 380px;
   display: flex; flex-direction: column;
-  border-radius: 16px; overflow: hidden;
-  box-shadow: 0 8px 32px var(--shadow);
+  background: var(--bg-secondary); border-top: 1px solid var(--border);
+  animation: fadeIn 0.15s ease;
+}
+.emoji-picker-dock .emoji-picker,
+.emoji-picker-dock .sticker-picker {
+  width: 100%; height: 100%; max-height: none;
+  border: none; border-radius: 0; box-shadow: none;
+  position: static; animation: none;
 }
 .emoji-picker-tabs {
   display: flex; background: var(--bg-tertiary); border-bottom: 1px solid var(--border);
@@ -1613,8 +1626,7 @@ body {
 .chat-preview-draft { color: var(--danger); font-size: 12px; }
 
 @media (max-width: 600px) {
-  .emoji-picker { width: calc(100vw - 24px); }
-  .emoji-picker-popup { right: -8px; }
+  .emoji-picker-dock { width: 100%; height: 280px; align-self: stretch; }
 }
 
 /* ── Network Badge (Mesh / LAN / P2P indicator) ──── */

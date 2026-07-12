@@ -1265,36 +1265,26 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
               ref={inputRef}
               className="msg-input" placeholder="Написать сообщение..." value={text}
               onChange={handleTextChange} onKeyDown={onKeyDown} rows={1}
+              onFocus={() => setShowEmojiPicker(false)}
               onBlur={() => setTimeout(() => setShowFormatBar(false), 200)}
               onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'; }}
             />
           </div>
           <div className="sticker-picker-wrap">
-            <button className="attach-btn emoji-toggle-btn" onClick={() => setShowEmojiPicker(p => !p)} title="Эмодзи и стикеры">
+            <button
+              className="attach-btn emoji-toggle-btn"
+              onClick={() => {
+                // Как в Telegram: открытие пикера убирает нативную клавиатуру
+                // (блюр поля), а не всплывает поверх неё.
+                if (!showEmojiPicker) inputRef.current?.blur();
+                setShowEmojiPicker(p => !p);
+              }}
+              title="Эмодзи и стикеры"
+            >
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <circle cx="12" cy="12" r="10"/><path d="M8 13s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/>
               </svg>
             </button>
-            {showEmojiPicker && (
-              <div className="emoji-picker-popup">
-                {/* mousedown/touchstart stopPropagation — EmojiPicker/StickerPicker each
-                    close themselves on the first outside mousedown, but their own ref
-                    only covers their own subtree, not this sibling tab row. Without this,
-                    clicking "Стикеры" while "Эмодзи" is open closed the whole popup
-                    instead of switching tabs. */}
-                <div className="emoji-picker-tabs" onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
-                  <button className={`emoji-tab ${!showStickers ? 'active' : ''}`} onClick={() => setShowStickers(false)}>😀 Эмодзи</button>
-                  <button className={`emoji-tab ${showStickers ? 'active' : ''}`} onClick={() => setShowStickers(true)}>🎭 Стикеры</button>
-                </div>
-                {showStickers
-                  ? <StickerPicker onPick={e => { sendSticker(e); setShowEmojiPicker(false); }} onClose={() => setShowEmojiPicker(false)} />
-                  : <EmojiPicker
-                      onPick={e => { setText(t => t + e); setShowEmojiPicker(false); }}
-                      onClose={() => setShowEmojiPicker(false)}
-                    />
-                }
-              </div>
-            )}
           </div>
           {!text.trim() && !fileToSend ? (
             <>
@@ -1322,6 +1312,30 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
               </svg>
             </button>
           )}
+        </div>
+      )}
+
+      {showEmojiPicker && (
+        // Обычный flex-элемент под композером (не absolute-попап) — как в
+        // Telegram, где список эмодзи занимает то же место, что и нативная
+        // клавиатура, а не всплывает поверх содержимого.
+        <div className="emoji-picker-dock">
+          {/* mousedown/touchstart stopPropagation — EmojiPicker/StickerPicker each
+              close themselves on the first outside mousedown, but their own ref
+              only covers their own subtree, not this sibling tab row. Without this,
+              clicking "Стикеры" while "Эмодзи" is open closed the whole dock
+              instead of switching tabs. */}
+          <div className="emoji-picker-tabs" onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
+            <button className={`emoji-tab ${!showStickers ? 'active' : ''}`} onClick={() => setShowStickers(false)}>😀 Эмодзи</button>
+            <button className={`emoji-tab ${showStickers ? 'active' : ''}`} onClick={() => setShowStickers(true)}>🎭 Стикеры</button>
+          </div>
+          {showStickers
+            ? <StickerPicker onPick={e => { sendSticker(e); setShowEmojiPicker(false); }} onClose={() => setShowEmojiPicker(false)} />
+            : <EmojiPicker
+                onPick={e => { setText(t => t + e); setShowEmojiPicker(false); }}
+                onClose={() => setShowEmojiPicker(false)}
+              />
+          }
         </div>
       )}
 
