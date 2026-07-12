@@ -1546,11 +1546,8 @@ body {
 .emoji-img { width: 1em; height: 1em; vertical-align: -0.2em; object-fit: contain; }
 
 /* Docked below the composer as a normal flex item (not an absolute popup) —
-   sits right above the native keyboard instead of floating over content
-   (WhatsApp/Telegram-style: opening it does NOT blur the input, so the
-   keyboard stays open underneath; Capacitor's Keyboard.setResizeMode
-   'native' (native.js) shrinks the WebView to make room, and this dock
-   just occupies the freed-up space at the bottom of that shrunk layout).
+   takes over the space the native keyboard would have used (opening it
+   blurs the input and calls Keyboard.hide(), see ChatWindow.jsx/native.js).
    .emoji-picker/.sticker-picker keep their own standalone floating-card
    styles for other uses (e.g. the reaction picker in MessageItem.jsx) —
    only overridden here to fill the dock instead. */
@@ -1629,7 +1626,10 @@ body {
 .chat-preview-draft { color: var(--danger); font-size: 12px; }
 
 @media (max-width: 600px) {
-  .emoji-picker-dock { width: 100%; height: 280px; align-self: stretch; }
+  /* Было 280px — заметно ниже, чем сколько места под эмодзи выделяет
+     Telegram/системная клавиатура (см. скриншоты). vh вместо фиксированного
+     px, чтобы масштабировалось под разные размеры экрана. */
+  .emoji-picker-dock { width: 100%; height: 55vh; align-self: stretch; }
 }
 
 /* ── Network Badge (Mesh / LAN / P2P indicator) ──── */
