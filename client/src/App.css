@@ -1177,9 +1177,13 @@ img.jumbo-emoji { width: 64px; height: 64px; vertical-align: unset; }
     display: flex;
   }
 
-  /* Шапка чата */
+  /* Шапка чата — плавающая капсула с отступом от края, как в Telegram, а не
+     сплошная полоса во всю ширину. */
   .chat-header {
     padding-top: max(14px, env(safe-area-inset-top));
+    margin: 8px 8px 0; border-radius: 20px;
+    border-bottom: none;
+    box-shadow: 0 4px 16px var(--shadow);
   }
 
   /* Кнопка назад — всегда видна */
@@ -1201,8 +1205,13 @@ img.jumbo-emoji { width: 64px; height: 64px; vertical-align: unset; }
   }
   .msg-bubble { max-width: 82vw; }
 
-  /* Инпут чата */
-  .chat-input-area { padding: 10px 12px; gap: 8px; }
+  /* Инпут чата — тоже плавающая капсула, а не полоса во всю ширину. */
+  .chat-input-area {
+    padding: 10px 12px; gap: 8px;
+    margin: 0 8px 8px; border-radius: 26px;
+    border-top: none;
+    box-shadow: 0 4px 16px var(--shadow);
+  }
   .msg-input { font-size: 16px !important; padding: 10px 14px; }
 
   /* Запись голосового */
