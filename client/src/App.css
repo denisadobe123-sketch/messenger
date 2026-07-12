@@ -1540,6 +1540,11 @@ body {
 .emoji-btn:active { transform: scale(0.92); }
 .emoji-empty { grid-column: 1 / -1; text-align: center; color: var(--text-muted); padding: 20px; font-size: 13px; }
 
+/* Twemoji <img> replacing the OS emoji glyph — sized off the parent's
+   font-size so every existing button/span size (reaction-chip, sticker-emoji,
+   emoji-btn, etc.) keeps working without per-usage overrides. */
+.emoji-img { width: 1em; height: 1em; vertical-align: -0.2em; object-fit: contain; }
+
 .emoji-picker-popup {
   position: absolute; bottom: 52px; right: 0; z-index: 150;
   display: flex; flex-direction: column;

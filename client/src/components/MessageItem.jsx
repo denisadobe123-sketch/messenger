@@ -6,6 +6,7 @@ import LinkPreview from './LinkPreview.jsx';
 import { renderText, firstUrl } from '../format.jsx';
 import { useDecryptedMedia } from '../useDecryptedMedia.js';
 import { MoreIcon, ReplyIcon, CopyIcon, ForwardIcon, PinIcon, EditIcon, TrashIcon } from '../icons.jsx';
+import Emoji from '../Emoji.jsx';
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🔥', '🎉', '👎'];
 
@@ -166,7 +167,7 @@ function MessageItem({
       >
         {selectMode && <span className={`msg-checkbox ${selected ? 'checked' : ''}`}>{selected && '✓'}</span>}
         <div className="sticker-message" id={`msg-${msg.id}`}>
-          <span className="sticker-emoji">{msg.sticker}</span>
+          <Emoji text={msg.sticker} className="sticker-emoji" />
           <span className="sticker-time">{time}</span>
         </div>
       </div>
@@ -255,7 +256,7 @@ function MessageItem({
         <div className="msg-reactions">
           {msg.reactions.map(r => (
             <button key={r.emoji} className={`reaction-chip ${r.userIds.includes(currentUserId) ? 'mine' : ''}`} onClick={() => handleReact(r.emoji)}>
-              {r.emoji} <span className="reaction-count">{r.userIds.length}</span>
+              <Emoji text={r.emoji} /> <span className="reaction-count">{r.userIds.length}</span>
             </button>
           ))}
         </div>
@@ -285,11 +286,11 @@ function MessageItem({
         </div>
 
         <div className="reaction-picker-wrap">
-          <button className="reaction-btn" onClick={() => setShowPicker(p => !p)}>😊</button>
+          <button className="reaction-btn" onClick={() => setShowPicker(p => !p)}><Emoji text="😊" /></button>
           {showPicker && (
             <div className={`reaction-picker ${isOwn ? 'reaction-picker-left' : ''}`}>
               {QUICK_REACTIONS.map(e => (
-                <button key={e} className="reaction-option" onClick={() => { handleReact(e); setShowPicker(false); }}>{e}</button>
+                <button key={e} className="reaction-option" onClick={() => { handleReact(e); setShowPicker(false); }}><Emoji text={e} /></button>
               ))}
               <button className="reaction-option reaction-more" onClick={() => { setShowPicker(false); setShowFullEmoji(p => !p); }}>＋</button>
             </div>

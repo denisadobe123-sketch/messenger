@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
+import Emoji from '../Emoji.jsx';
 
 const CATEGORIES = [
   { id: 'recent',     label: '🕐', title: 'Недавние' },
@@ -85,7 +86,7 @@ export default function EmojiPicker({ onPick, onClose, style }) {
             title={cat.title}
             onClick={() => { setActiveCategory(cat.id); setSearch(''); }}
           >
-            {cat.label}
+            <Emoji text={cat.label} />
           </button>
         ))}
       </div>
@@ -102,7 +103,7 @@ export default function EmojiPicker({ onPick, onClose, style }) {
           <div className="emoji-empty">Недавних нет</div>
         )}
         {displayEmojis.map((emoji, i) => (
-          <button key={i} className="emoji-btn" onClick={() => pick(emoji)}>{emoji}</button>
+          <button key={i} className="emoji-btn" onClick={() => pick(emoji)}><Emoji text={emoji} /></button>
         ))}
       </div>
     </div>

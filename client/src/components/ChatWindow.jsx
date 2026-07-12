@@ -1277,7 +1277,12 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
             </button>
             {showEmojiPicker && (
               <div className="emoji-picker-popup">
-                <div className="emoji-picker-tabs">
+                {/* mousedown/touchstart stopPropagation — EmojiPicker/StickerPicker each
+                    close themselves on the first outside mousedown, but their own ref
+                    only covers their own subtree, not this sibling tab row. Without this,
+                    clicking "Стикеры" while "Эмодзи" is open closed the whole popup
+                    instead of switching tabs. */}
+                <div className="emoji-picker-tabs" onMouseDown={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
                   <button className={`emoji-tab ${!showStickers ? 'active' : ''}`} onClick={() => setShowStickers(false)}>😀 Эмодзи</button>
                   <button className={`emoji-tab ${showStickers ? 'active' : ''}`} onClick={() => setShowStickers(true)}>🎭 Стикеры</button>
                 </div>
