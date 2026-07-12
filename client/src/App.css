@@ -1177,10 +1177,11 @@ img.jumbo-emoji { width: 64px; height: 64px; vertical-align: unset; }
     display: flex;
   }
 
-  /* Шапка чата — та же плавающая капсула, что и композер ниже. */
+  /* Шапка чата — та же плавающая капсула, что и композер ниже, но шире
+     (меньше отступ по бокам), ближе к референсу. */
   .chat-header {
     padding-top: max(14px, env(safe-area-inset-top));
-    margin: 8px 8px 0; border-radius: 26px;
+    margin: 8px 6px 0; border-radius: 26px;
     border-bottom: none;
     box-shadow: 0 4px 16px var(--shadow);
   }
