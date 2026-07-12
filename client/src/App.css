@@ -1177,11 +1177,10 @@ img.jumbo-emoji { width: 64px; height: 64px; vertical-align: unset; }
     display: flex;
   }
 
-  /* Шапка чата — плавающая капсула с отступом от края, как в Telegram, а не
-     сплошная полоса во всю ширину. */
+  /* Шапка чата — та же плавающая капсула, что и композер ниже. */
   .chat-header {
     padding-top: max(14px, env(safe-area-inset-top));
-    margin: 8px 8px 0; border-radius: 20px;
+    margin: 8px 8px 0; border-radius: 26px;
     border-bottom: none;
     box-shadow: 0 4px 16px var(--shadow);
   }
