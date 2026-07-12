@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, Fragment } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, Fragment } from 'react';
 import MessageItem from './MessageItem.jsx';
 import StickerPicker from './StickerPicker.jsx';
 import EmojiPicker from './EmojiPicker.jsx';
@@ -12,10 +12,9 @@ import { useDecryptedMedia } from '../useDecryptedMedia.js';
 import { getAvatarColor } from '../avatarColor.js';
 import ConfirmDialog from './ConfirmDialog.jsx';
 import { SearchIcon, ImageIcon, ClockIcon, CheckSquareIcon, SlashIcon, CheckIcon, TrashIcon, FileIcon, BarChartIcon, MapPinIcon } from '../icons.jsx';
+import { STATUS_LABELS, useEscapeClose } from '../uiUtils.jsx';
 
 const DRAFTS_KEY = 'chat_drafts';
-
-const STATUS_LABELS = { online: 'В сети', away: 'Отошёл', dnd: 'Не беспокоить', offline: 'Не в сети' };
 
 function formatLastSeen(iso) {
   if (!iso) return 'не в сети';
@@ -451,7 +450,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
   }
 
   function showAlert(msg) { setSendError(msg); setTimeout(() => setSendError(''), 3000); }
-  function askConfirm(message, onConfirm) { setConfirmDialog({ message, onConfirm }); }
+  const askConfirm = useCallback((message, onConfirm) => { setConfirmDialog({ message, onConfirm }); }, []);
 
   // Загрузка вложения (фото/файл/голос/видео-кружок). В секретных чатах байты
   // шифруются на устройстве до аплоада (сервер получает и хранит только
@@ -594,8 +593,11 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     });
   }
 
-  function handleReact(messageId, emoji) { socket?.emit('add_reaction', { messageId, emoji }); }
-  function handleVote(messageId, optionIdx) { socket?.emit('vote_poll', { messageId, optionIdx }); }
+  // useCallback здесь и ниже — так MessageItem можно обернуть в React.memo:
+  // без стабильных ссылок на функции-пропсы memo не спасал бы от ре-рендера
+  // всего списка сообщений при наборе текста в поле ввода (см. items выше).
+  const handleReact = useCallback((messageId, emoji) => { socket?.emit('add_reaction', { messageId, emoji }); }, [socket]);
+  const handleVote = useCallback((messageId, optionIdx) => { socket?.emit('vote_poll', { messageId, optionIdx }); }, [socket]);
 
   function sendPoll(poll) {
     if (!socket || !chat) return;
@@ -612,11 +614,26 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
       { enableHighAccuracy: true, timeout: 10000 }
     );
   }
-  function handleReply(msg) { setEditingMsg(null); setReplyingTo(msg); }
-  function handleEdit(msg) { setReplyingTo(null); setEditingMsg(msg); setText(msg.text || ''); }
-  function handleDelete(messageId) { askConfirm('Удалить сообщение?', () => { socket?.emit('delete_message', { messageId }); setConfirmDialog(null); }); }
-  function handlePin(messageId) { socket?.emit('pin_message', { chatId: chat.id, messageId }); }
-  function handleUnpin(messageId) { socket?.emit('unpin_message', { chatId: chat.id, messageId }); }
+  const handleReply = useCallback((msg) => { setEditingMsg(null); setReplyingTo(msg); }, []);
+  const handleEdit = useCallback((msg) => { setReplyingTo(null); setEditingMsg(msg); setText(msg.text || ''); }, []);
+  const handleDelete = useCallback((messageId) => { askConfirm('Удалить сообщение?', () => { socket?.emit('delete_message', { messageId }); setConfirmDialog(null); }); }, [socket, askConfirm]);
+  const handlePin = useCallback((messageId) => { socket?.emit('pin_message', { chatId: chat.id, messageId }); }, [socket, chat?.id]);
+  const handleUnpin = useCallback((messageId) => { socket?.emit('unpin_message', { chatId: chat.id, messageId }); }, [socket, chat?.id]);
+
+  // Escape-to-close for the inline modal-overlay blocks below (forward/
+  // schedule/scheduled-list/media). The sub-component modals (PollComposer,
+  // GroupInfo, PrivateInfo) each handle their own via useEscapeClose.
+  useEffect(() => {
+    function onKeyDown(e) {
+      if (e.key !== 'Escape') return;
+      if (forwardingMsg) setForwardingMsg(null);
+      else if (showScheduleModal) setShowScheduleModal(false);
+      else if (showScheduled) setShowScheduled(false);
+      else if (showMedia) setShowMedia(false);
+    }
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [forwardingMsg, showScheduleModal, showScheduled, showMedia]);
 
   function loadScheduled() {
     fetch(`${API_URL}/messages/${chat.id}/scheduled`, { headers: { Authorization: `Bearer ${token}` } })
@@ -637,7 +654,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     send(when.toISOString());
     setShowScheduleModal(false);
   }
-  function handleForward(msg) { setForwardingMsg(msg); }
+  const handleForward = useCallback((msg) => { setForwardingMsg(msg); }, []);
   function openInfo() { if (chat.type === 'group') setShowGroupInfo(true); else setShowPrivateInfo(true); }
   function closeInfo() { setShowGroupInfo(false); setShowPrivateInfo(false); }
   const chatActions = {
@@ -724,9 +741,9 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     setSelectMode(p => !p);
     setSelectedIds(new Set());
   }
-  function toggleSelectMessage(id) {
+  const toggleSelectMessage = useCallback((id) => {
     setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  }
+  }, []);
   function deleteSelected() {
     if (!selectedIds.size) return;
     askConfirm(`Удалить ${selectedIds.size} сообщений?`, () => {
@@ -773,10 +790,10 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     askConfirm('Удалить участника из группы?', () => { socket?.emit('remove_member', { chatId: chat.id, userId }); setConfirmDialog(null); });
   }
 
-  function scrollToMessage(messageId) {
+  const scrollToMessage = useCallback((messageId) => {
     const el = document.getElementById(`msg-${messageId}`);
     if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); setHighlightedId(messageId); setTimeout(() => setHighlightedId(null), 1500); }
-  }
+  }, []);
 
   // ── Search ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -891,6 +908,12 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     setUploading(false);
   }
 
+  // Раньше пересчитывался на каждый рендер ChatWindow (включая набор текста
+  // в поле ввода), хотя зависит только от messages — теперь только когда
+  // сообщения действительно меняются. Должен быть выше "if (!chat) return"
+  // ниже: хук не может быть условным между рендерами одного компонента.
+  const items = useMemo(() => groupByDay(messages), [messages]);
+
   const isOnline = otherId ? onlineUsers.has(otherId) : false;
   const otherStatus = otherId ? (userStatuses?.get(otherId) || (isOnline ? 'online' : 'offline')) : 'online';
   const lastSeenIso = otherId ? (userLastSeen?.get(otherId) || chat?.otherUserLastSeen) : null;
@@ -920,8 +943,6 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
       </div>
     );
   }
-
-  const items = groupByDay(messages);
   const typingList = [...typingUsers.values()];
   // Мультизакреп: показываем закреплённые из pinnedIds (fallback на legacy pinnedMessageId)
   const effectivePinIds = pinnedIds.length ? pinnedIds : (pinnedMessageId ? [pinnedMessageId] : []);
@@ -1300,7 +1321,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
       )}
 
       {forwardingMsg && (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setForwardingMsg(null)}>
+        <div className="modal-overlay" role="dialog" aria-modal="true" onClick={e => e.target === e.currentTarget && setForwardingMsg(null)}>
           <div className="modal">
             <h3>Переслать в...</h3>
             <div className="modal-members">
@@ -1326,7 +1347,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
       )}
 
       {showScheduleModal && (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowScheduleModal(false)}>
+        <div className="modal-overlay" role="dialog" aria-modal="true" onClick={e => e.target === e.currentTarget && setShowScheduleModal(false)}>
           <div className="modal">
             <h3>Отложенная отправка</h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginTop: -4 }}>Когда отправить сообщение?</p>
@@ -1341,7 +1362,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
       )}
 
       {showScheduled && (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowScheduled(false)}>
+        <div className="modal-overlay" role="dialog" aria-modal="true" onClick={e => e.target === e.currentTarget && setShowScheduled(false)}>
           <div className="modal">
             <h3>⏰ Запланированные</h3>
             <div className="modal-members">
@@ -1365,7 +1386,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
       )}
 
       {showMedia && (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowMedia(false)}>
+        <div className="modal-overlay" role="dialog" aria-modal="true" onClick={e => e.target === e.currentTarget && setShowMedia(false)}>
           <div className="modal">
             <h3>Общие медиа</h3>
             <MediaTabs mediaMsgs={mediaMsgs} fileMsgs={fileMsgs} linkMsgs={linkMsgs}
@@ -1444,8 +1465,9 @@ function ChatActions({ chat, isBlocked, burnAfter, setBurnAfter, onSearch, onMed
 }
 
 function PrivateInfo({ chat, isOnline, statusLabel, isSecret, onClose, actions }) {
+  useEscapeClose(onClose);
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className="modal-overlay" role="dialog" aria-modal="true" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <div className="group-info-head">
           <div className="avatar lg" style={{ margin: '0 auto', ...(!chat.otherUserAvatar ? { background: getAvatarColor(chat.displayName) } : {}) }}>
@@ -1487,8 +1509,9 @@ function PollComposer({ onCreate, onClose }) {
     onCreate({ question: question.trim(), multi, public: true, options: opts.map(text => ({ text, votes: [] })) });
   }
 
+  useEscapeClose(onClose);
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className="modal-overlay" role="dialog" aria-modal="true" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <h3>📊 Создать опрос</h3>
         <input className="modal-input" placeholder="Вопрос" value={question} onChange={e => setQuestion(e.target.value)} autoFocus />
@@ -1522,7 +1545,7 @@ function MediaGridItem({ msg, otherId, token, onImageClick }) {
   const media = useDecryptedMedia(msg.file.url, msg.enc ? otherId : null, token, msg.file.mimetype);
   if (media.loading) return <div className="media-grid-item" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🔒</div>;
   return msg.file.mimetype?.startsWith('image/')
-    ? <img src={media.src} alt="" className="media-grid-item" onClick={() => onImageClick(media.src)} />
+    ? <img src={media.src} alt="" className="media-grid-item" loading="lazy" onClick={() => onImageClick(media.src)} />
     : <a href={media.src} target="_blank" rel="noreferrer" className="media-grid-item media-grid-video">🎬</a>;
 }
 
@@ -1605,8 +1628,9 @@ function GroupInfo({ chat, currentUser, token, onlineUsers, onClose, onRename, o
     setAdding(false); setToAdd([]);
   }
 
+  useEscapeClose(onClose);
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+    <div className="modal-overlay" role="dialog" aria-modal="true" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal">
         <div className="group-info-head">
           <div className="avatar lg group">{(chat.name || '?')[0].toUpperCase()}</div>

@@ -13,6 +13,31 @@ const { BASE_URL, dataDir, registerUser, connectSocket, emitWithAck, apiFetch } 
 test.before(() => srv.start());
 test.after(() => srv.stop());
 
+// Logs in the same email a second time (simulating a second device). The
+// [OTP] line is only written once sendOtpEmail's real network call to
+// EmailJS resolves, so — unlike registerUser's "last match anywhere" —
+// this checkpoints the stdout length right before send-otp and only reads
+// the code from what gets appended after, so it can't pick up the first
+// device's already-consumed code even if the two log lines interleave.
+async function secondDeviceLogin(email) {
+  const checkpoint = srv.getStdout().length;
+  const sendRes = await fetch(`${BASE_URL}/auth/send-otp`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email })
+  });
+  const { otpToken } = await sendRes.json();
+  const code = await srv.waitFor(() => {
+    const m = srv.getStdout().slice(checkpoint).match(new RegExp(`\\[OTP\\] ${email} → (\\d{6})`));
+    return m?.[1];
+  }, { timeout: 10000 });
+  const verifyRes = await fetch(`${BASE_URL}/auth/verify-otp`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, otpToken, otpCode: code })
+  });
+  const data = await verifyRes.json();
+  if (!data.token) throw new Error(`verify-otp did not return a token: ${JSON.stringify(data)}`);
+  return { token: data.token, user: data.user };
+}
+
 test('POST /login is rate-limited after 20 attempts/hour/IP', async () => {
   let lastStatus;
   for (let i = 0; i < 21; i++) {
@@ -159,4 +184,25 @@ test('logout-all revokes the old token immediately (tokenVersion)', async () => 
 
   const after = await apiFetch('/chats', alice.token);
   assert.equal(after.status, 401, 'the pre-logout-all token must be rejected once tokenVersion has been bumped');
+});
+
+test('per-device session: revoking one device does not affect another', async () => {
+  const bob = await registerUser('bob-sessions@test.local');
+  // Second "device" — its own OTP login, its own token/jti.
+  const bobSecondDevice = await secondDeviceLogin('bob-sessions@test.local');
+
+  const list = await apiFetch('/auth/sessions', bob.token);
+  assert.equal(list.status, 200);
+  assert.ok(list.body.length >= 2, 'both logins should show up as separate sessions');
+  const firstSession = list.body.find(s => s.current);
+  assert.ok(firstSession, 'the token used to list sessions should be marked current');
+
+  const revoke = await apiFetch(`/auth/sessions/${firstSession.id}`, bob.token, { method: 'DELETE' });
+  assert.equal(revoke.status, 200);
+
+  const afterRevoke = await apiFetch('/chats', bob.token);
+  assert.equal(afterRevoke.status, 401, 'the revoked device\'s token must stop working');
+
+  const otherDeviceStillWorks = await apiFetch('/chats', bobSecondDevice.token);
+  assert.equal(otherDeviceStillWorks.status, 200, 'revoking one device must not log out the other');
 });

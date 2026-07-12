@@ -1,8 +1,7 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, memo } from 'react';
 import { getAvatarColor } from '../avatarColor.js';
 import { MoreIcon, PinIcon, BellIcon, BellOffIcon, ArchiveIcon, TrashIcon } from '../icons.jsx';
-
-function getInitials(name) { return (name || '?')[0].toUpperCase(); }
+import { getInitials, formatTime, StatusDot } from '../uiUtils.jsx';
 
 const DRAFTS_KEY = 'chat_drafts';
 function getDraft(chatId) {
@@ -24,24 +23,9 @@ function previewText(msg, chatId) {
   return msg.text || '';
 }
 
-function formatTime(iso) {
-  if (!iso) return '';
-  const d = new Date(iso), now = new Date();
-  if (now - d < 86400000 && d.getDate() === now.getDate())
-    return d.toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
-  if (now - d < 604800000)
-    return d.toLocaleDateString('ru', { weekday: 'short' });
-  return d.toLocaleDateString('ru', { day: '2-digit', month: '2-digit' });
-}
-
-function StatusDot({ status, online }) {
-  const s = online === false ? 'offline' : (status || 'online');
-  return <span className={`status-dot ${s}`} />;
-}
-
 const SWIPE_THRESHOLD = 70;
 
-export default function ChatItem({
+function ChatItem({
   chat, currentUser, isActive, isOnline, otherStatus, otherAvatar, isPinned, isArchived, isMuted,
   onSelect, onArchive, onTogglePin, onToggleMute, onDeleteChat, menuOpen, onToggleMenu
 }) {
@@ -81,7 +65,7 @@ export default function ChatItem({
       >
         <div className={`avatar ${chat.type === 'group' ? 'group' : ''}`} style={avatarColor ? { background: avatarColor } : undefined}>
           {otherAvatar && chat.type === 'private'
-            ? <img src={otherAvatar} alt={chat.displayName} />
+            ? <img src={otherAvatar} alt={chat.displayName} loading="lazy" />
             : getInitials(chat.displayName)}
           {chat.type === 'private' && <StatusDot status={otherStatus} online={isOnline} />}
         </div>
@@ -120,3 +104,9 @@ export default function ChatItem({
     </div>
   );
 }
+
+// Note: full effect depends on Sidebar/App.jsx passing stable handler props
+// (onSelect/onArchive/onTogglePin/onToggleMute/onDeleteChat/onToggleMenu are
+// currently recreated on every parent render) — memo here is a no-regret
+// structural step, not yet a complete fix for full chat-list re-renders.
+export default memo(ChatItem);

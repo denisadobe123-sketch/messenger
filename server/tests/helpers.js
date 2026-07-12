@@ -63,9 +63,13 @@ function createTestServer(port) {
     const { otpToken } = await sendRes.json();
     if (!otpToken) throw new Error('send-otp did not return otpToken');
 
+    // matchAll + last, not match() + first: a test that calls registerUser
+    // twice for the same email (e.g. to simulate a second device login) would
+    // otherwise always get the FIRST, already-consumed code out of the
+    // accumulated stdout buffer and fail with "wrong code".
     const code = await waitFor(() => stdoutBuf, () => {
-      const m = stdoutBuf.match(new RegExp(`\\[OTP\\] ${email} → (\\d{6})`));
-      return m?.[1];
+      const matches = [...stdoutBuf.matchAll(new RegExp(`\\[OTP\\] ${email} → (\\d{6})`, 'g'))];
+      return matches.length ? matches[matches.length - 1][1] : undefined;
     }, { timeout: 10000 });
 
     const verifyRes = await fetch(`${BASE_URL}/auth/verify-otp`, {
@@ -109,7 +113,11 @@ function createTestServer(port) {
     return { status: res.status, ok: res.ok, body: json };
   }
 
-  return { BASE_URL, dataDir: tmpDir, start, stop, registerUser, connectSocket, emitWithAck, waitForEvent, apiFetch, waitFor: (pred, opts) => waitFor(() => stdoutBuf, pred, opts) };
+  return {
+    BASE_URL, dataDir: tmpDir, start, stop, registerUser, connectSocket, emitWithAck, waitForEvent, apiFetch,
+    waitFor: (pred, opts) => waitFor(() => stdoutBuf, pred, opts),
+    getStdout: () => stdoutBuf
+  };
 }
 
 module.exports = { createTestServer };

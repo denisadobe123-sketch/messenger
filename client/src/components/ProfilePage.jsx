@@ -4,8 +4,7 @@ import { getTheme, toggleTheme } from '../theme.js';
 import { getAvatarColor } from '../avatarColor.js';
 import { hasPasscode, setPasscode, removePasscode } from '../passcode.js';
 import { WALLPAPERS, getWallpaper, setWallpaper } from '../wallpaper.js';
-
-const STATUS_LABELS = { online: '🟢 В сети', away: '🟡 Отошёл', dnd: '🔴 Не беспокоить' };
+import { STATUS_PICKER_LABELS } from '../uiUtils.jsx';
 
 export default function ProfilePage({ user, token, onUpdate, onLogout }) {
   const [displayName, setDisplayName] = useState(user.displayName || user.username || '');
@@ -168,7 +167,7 @@ export default function ProfilePage({ user, token, onUpdate, onLogout }) {
         <div className="profile-section">
           <label>Статус</label>
           <select className="status-select" value={status} onChange={e => setStatus(e.target.value)}>
-            {Object.entries(STATUS_LABELS).map(([val, label]) => <option key={val} value={val}>{label}</option>)}
+            {Object.entries(STATUS_PICKER_LABELS).map(([val, label]) => <option key={val} value={val}>{label}</option>)}
           </select>
         </div>
 
@@ -192,6 +191,10 @@ export default function ProfilePage({ user, token, onUpdate, onLogout }) {
 
         <div className="profile-divider" />
 
+        <SessionsSettings token={token} />
+
+        <div className="profile-divider" />
+
         <PrivacySettings token={token} />
 
         <div className="profile-divider" />
@@ -206,7 +209,7 @@ export default function ProfilePage({ user, token, onUpdate, onLogout }) {
             {blockedUsers.map(u => (
               <div key={u.id} className="blocked-user-row">
                 <div className="avatar sm" style={{ background: getAvatarColor(u.username), flexShrink: 0 }}>
-                  {u.avatar ? <img src={u.avatar} alt="" /> : (u.displayName || u.username)[0].toUpperCase()}
+                  {u.avatar ? <img src={u.avatar} alt="" loading="lazy" /> : (u.displayName || u.username)[0].toUpperCase()}
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 600, fontSize: 14 }}>{u.displayName || u.username}</div>
@@ -424,6 +427,76 @@ function SecuritySettings({ token }) {
       </div>
 
       {note && <div className="success-msg">{note}</div>}
+    </div>
+  );
+}
+
+function deviceIcon(device) {
+  if (device === 'Android' || device === 'iOS') return '📱';
+  if (device === 'Mac' || device === 'Windows' || device === 'Linux') return '💻';
+  return '🖥';
+}
+
+function formatSessionTime(iso) {
+  if (!iso) return '';
+  return new Date(iso).toLocaleString('ru', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+// Was previously only possible via "logout everywhere" (bumping tokenVersion) —
+// this lets a user see and end one specific device's session without touching
+// the others (see server's Sessions table / jti in the JWT).
+function SessionsSettings({ token }) {
+  const [sessions, setSessions] = useState(null); // null = loading
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    fetch(`${API_URL}/auth/sessions`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(d => setSessions(Array.isArray(d) ? d : []))
+      .catch(() => setSessions([]));
+  }, [token]);
+
+  useEffect(() => {
+    if (!err) return;
+    const t = setTimeout(() => setErr(''), 4000);
+    return () => clearTimeout(t);
+  }, [err]);
+
+  async function revoke(id) {
+    const prev = sessions;
+    setSessions(list => list.filter(s => s.id !== id));
+    try {
+      const res = await fetch(`${API_URL}/auth/sessions/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error();
+    } catch {
+      setSessions(prev);
+      setErr('Не удалось завершить сеанс — попробуй ещё раз');
+    }
+  }
+
+  if (!sessions?.length) return null;
+
+  return (
+    <div>
+      <h3 style={{ fontSize: 15, margin: '20px 0 14px' }}>💻 Устройства</h3>
+      {sessions.map(s => (
+        <div key={s.id} className="blocked-user-row">
+          <div className="avatar sm" style={{ background: 'var(--bg-secondary)', flexShrink: 0, fontSize: 16 }}>
+            {deviceIcon(s.device)}
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 600, fontSize: 14 }}>
+              {s.device || 'Неизвестное устройство'}{s.current ? ' · это устройство' : ''}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Активность: {formatSessionTime(s.lastSeenAt)}</div>
+          </div>
+          {!s.current && (
+            <button className="btn btn-secondary" style={{ fontSize: 12, padding: '6px 12px' }} onClick={() => revoke(s.id)}>
+              Завершить
+            </button>
+          )}
+        </div>
+      ))}
+      {err && <div className="error-msg">{err}</div>}
     </div>
   );
 }

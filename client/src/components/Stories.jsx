@@ -84,7 +84,7 @@ function StoryRing({ group, onClick }) {
   return (
     <div className="story-avatar" onClick={onClick}>
       <div className={`story-ring ${group.allViewed ? 'viewed' : ''}`}>
-        {group.avatar ? <img src={group.avatar} alt="" />
+        {group.avatar ? <img src={group.avatar} alt="" loading="lazy" />
           : <div className="story-init" style={{ background: getAvatarColor(group.username) }}>{initial}</div>}
       </div>
       <span className="story-name">{group.isMine ? 'Моя' : group.username}</span>

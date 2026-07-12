@@ -215,7 +215,7 @@ export default function CallModal({ call, socket, currentUserId, onEnd }) {
   const isIncoming = status === 'incoming';
 
   return (
-    <div className="call-overlay">
+    <div className="call-overlay" role="dialog" aria-modal="true" aria-label={isVideo ? 'Видеозвонок' : 'Аудиозвонок'}>
       {/* Видео-элементы всегда смонтированы, чтобы refs привязывались сразу
           при получении стрима, даже на экране входящего звонка. */}
       {isVideo && !isIncoming ? (

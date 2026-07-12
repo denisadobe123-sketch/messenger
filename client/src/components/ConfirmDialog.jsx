@@ -1,6 +1,9 @@
+import { useEscapeClose } from '../uiUtils.jsx';
+
 export default function ConfirmDialog({ message, onConfirm, onCancel, confirmLabel = 'Удалить', danger = true }) {
+  useEscapeClose(onCancel);
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onCancel()}>
+    <div className="modal-overlay" role="dialog" aria-modal="true" onClick={e => e.target === e.currentTarget && onCancel()}>
       <div className="modal confirm-modal">
         <p className="confirm-modal-text">{message}</p>
         <div className="modal-actions">

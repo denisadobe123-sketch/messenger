@@ -1,9 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import Auth from './components/Auth.jsx';
 import Sidebar from './components/Sidebar.jsx';
 import ChatWindow from './components/ChatWindow.jsx';
-import CallModal from './components/CallModal.jsx';
-import GroupCallModal from './components/GroupCallModal.jsx';
 import Toast from './components/Toast.jsx';
 import ConfirmDialog from './components/ConfirmDialog.jsx';
 import { connectSocket, disconnectSocket, getSocket } from './socket.js';
@@ -18,6 +16,12 @@ import { enqueue, flushQueue, queueSize } from './offlineQueue.js';
 import { hasPasscode, isUnlocked } from './passcode.js';
 import { ensureKeys, clearE2E } from './e2e.js';
 import { applyWallpaper, getWallpaper } from './wallpaper.js';
+
+// Call UIs pull in WebRTC/mesh-signaling logic but are only ever mounted
+// once a call actually starts — code-split so that weight isn't in the
+// initial bundle every user downloads just to open the chat list.
+const CallModal = lazy(() => import('./components/CallModal.jsx'));
+const GroupCallModal = lazy(() => import('./components/GroupCallModal.jsx'));
 
 function playNotificationSound() {
   try {
@@ -382,21 +386,25 @@ export default function App() {
         onBack={() => setSelectedChat(null)}
       />
       {activeCall && (
-        <CallModal
-          call={activeCall}
-          socket={getSocket()}
-          currentUserId={user.id}
-          onEnd={() => setActiveCall(null)}
-        />
+        <Suspense fallback={null}>
+          <CallModal
+            call={activeCall}
+            socket={getSocket()}
+            currentUserId={user.id}
+            onEnd={() => setActiveCall(null)}
+          />
+        </Suspense>
       )}
       {groupCall && (
-        <GroupCallModal
-          chat={groupCall.chat}
-          callType={groupCall.callType}
-          currentUser={user}
-          socket={getSocket()}
-          onEnd={() => setGroupCall(null)}
-        />
+        <Suspense fallback={null}>
+          <GroupCallModal
+            chat={groupCall.chat}
+            callType={groupCall.callType}
+            currentUser={user}
+            socket={getSocket()}
+            onEnd={() => setGroupCall(null)}
+          />
+        </Suspense>
       )}
       <Toast
         toasts={toasts}

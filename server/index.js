@@ -8,8 +8,10 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const dns = require('dns').promises;
+const net = require('net');
 const webpush = require('web-push');
-const { db, Users, Chats, Messages, Blocked, Muted, Stories } = require('./db');
+const { db, Users, Chats, Messages, Blocked, Muted, Stories, Sessions } = require('./db');
 const { encryptBuffer, decryptBuffer } = require('./crypto');
 
 // Email OTP via EmailJS REST API. Service/template/public IDs are the
@@ -65,8 +67,24 @@ const TOKEN_TTL = '30d';
 // Токен несёт tokenVersion пользователя; logout-all / смена пароля / смена
 // 2FA бампают это число в users.extra, и старые токены перестают проходить
 // authMiddleware/socket-auth, даже если их 30-дневный TTL ещё не истёк.
-function signToken(user) {
-  return jwt.sign({ id: user.id, username: user.username, tokenVersion: user.tokenVersion || 0 }, JWT_SECRET, { expiresIn: TOKEN_TTL });
+//
+// jti — новый: каждый выданный токен получает случайный id и строку в
+// sessions (см. db.js), что позволяет выйти с ОДНОГО устройства (DELETE
+// /auth/sessions/:id) не трогая остальные — раньше единственным способом
+// было logout-all, разлогинивающий все устройства сразу через tokenVersion.
+function deviceLabelFrom(req) {
+  const ua = req?.headers['user-agent'] || '';
+  if (/Android/i.test(ua)) return 'Android';
+  if (/iPhone|iPad|iPod/i.test(ua)) return 'iOS';
+  if (/Windows/i.test(ua)) return 'Windows';
+  if (/Macintosh/i.test(ua)) return 'Mac';
+  if (/Linux/i.test(ua)) return 'Linux';
+  return 'Неизвестное устройство';
+}
+function signToken(user, req) {
+  const jti = require('crypto').randomBytes(16).toString('hex');
+  Sessions.create(jti, user.id, deviceLabelFrom(req));
+  return jwt.sign({ id: user.id, username: user.username, tokenVersion: user.tokenVersion || 0, jti }, JWT_SECRET, { expiresIn: TOKEN_TTL });
 }
 function bumpTokenVersion(userId) {
   const u = Users.getById(userId);
@@ -147,6 +165,26 @@ const registerLimiter = makeRateLimiter(Number(process.env.RATE_LIMIT_REGISTER_M
 // неограниченно.
 const verify2faLimiter = makeRateLimiter(Number(process.env.RATE_LIMIT_2FA_MAX) || 10, 3600000, 'Слишком много попыток. Попробуй через час.');
 
+// Keyed limiter (returns bool, no res/next) — for socket events and routes
+// where the caller is already authenticated, so we key by userId instead of
+// IP. Covers send_message/upload/stories, which previously had no limit at
+// all: an authenticated user could spam unlimited messages (fanning out
+// unlimited pushes to every chat member), uploads, or stories.
+function makeKeyedRateLimiter(max, windowMs) {
+  const attempts = new Map();
+  return function check(key) {
+    const now = Date.now();
+    const att = attempts.get(key) || { count: 0, resetAt: now + windowMs };
+    if (now > att.resetAt) { att.count = 0; att.resetAt = now + windowMs; }
+    att.count++;
+    attempts.set(key, att);
+    return att.count <= max;
+  };
+}
+const sendMessageLimiter = makeKeyedRateLimiter(Number(process.env.RATE_LIMIT_SEND_MAX) || 300, 3600000);
+const uploadLimiter = makeKeyedRateLimiter(Number(process.env.RATE_LIMIT_UPLOAD_MAX) || 100, 3600000);
+const storyLimiter = makeKeyedRateLimiter(Number(process.env.RATE_LIMIT_STORY_MAX) || 30, 3600000);
+
 // OTP storage: otpToken -> { phone, code, expiresAt, attempts }
 const otpStore = new Map();
 
@@ -163,11 +201,19 @@ function cleanExpiredOTPs() {
 
 // Хранилище теперь в SQLite (см. db.js). better-sqlite3 пишет синхронно на каждом
 // запросе, поэтому отдельный saveDB() больше не нужен — оставлен как no-op, чтобы
-// не трогать множество старых вызовов. Закрываем БД корректно при остановке.
+// не трогать множество старых вызовов.
 function saveDB() {}
-function flushSync() { try { db.close(); } catch {} }
-process.on('SIGTERM', () => { flushSync(); process.exit(0); });
-process.on('SIGINT', () => { flushSync(); process.exit(0); });
+
+// Express 4 не ловит отклонённые промисы из async-обработчиков сама, а
+// Node с v15 убивает весь процесс при unhandledRejection — то есть одна
+// необработанная ошибка в одном запросе роняла сервер для всех подключённых
+// пользователей. Логируем и продолжаем работу вместо падения.
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+});
 
 function loadFCM() {
   if (!fs.existsSync(FCM_FILE)) return {};
@@ -333,6 +379,11 @@ function authMiddleware(req, res, next) {
   if (!u || (payload.tokenVersion || 0) !== (u.tokenVersion || 0)) {
     return res.status(401).json({ error: 'Сессия отозвана, войдите заново' });
   }
+  // payload.jti отсутствует у токенов, выданных до введения sessions —
+  // такие остаются валидными (обратная совместимость), как и с tokenVersion выше.
+  if (payload.jti && !Sessions.exists(payload.jti)) {
+    return res.status(401).json({ error: 'Сессия отозвана, войдите заново' });
+  }
   req.user = payload;
   next();
 }
@@ -479,7 +530,7 @@ app.post('/auth/verify-otp', async (req, res) => {
     return res.json({ need2fa: true, tempToken, hint: user.twoFactorHint || null });
   }
 
-  const token = signToken(user);
+  const token = signToken(user, req);
   res.json({ token, user: safeUser(user, true) });
 });
 
@@ -490,7 +541,7 @@ app.post('/login', loginLimiter, async (req, res) => {
   if (!user) return res.status(400).json({ error: 'Пользователь не найден' });
   if (!user.password) return res.status(400).json({ error: 'Используй вход по номеру телефона' });
   if (!await bcrypt.compare(password, user.password)) return res.status(400).json({ error: 'Неверный пароль' });
-  const token = signToken(user);
+  const token = signToken(user, req);
   res.json({ token, user: safeUser(user) });
 });
 
@@ -548,7 +599,7 @@ app.post('/auth/verify-2fa', verify2faLimiter, async (req, res) => {
   const u = Users.getById(payload.id);
   if (!u?.twoFactor) return res.status(400).json({ error: 'Не найден' });
   if (!await bcrypt.compare(password, u.twoFactor)) return res.status(400).json({ error: 'Неверный пароль' });
-  const token = signToken(u);
+  const token = signToken(u, req);
   res.json({ token, user: safeUser(u, true) });
 });
 
@@ -657,6 +708,22 @@ app.put('/change-password', authMiddleware, async (req, res) => {
 // после смены пароля, подозрения на компрометацию и т.п.)
 app.post('/auth/logout-all', authMiddleware, (req, res) => {
   bumpTokenVersion(req.user.id);
+  Sessions.revokeAllForUser(req.user.id);
+  res.json({ ok: true });
+});
+
+// ── Sessions (устройства) ────────────────────────────────────────────────────
+app.get('/auth/sessions', authMiddleware, (req, res) => {
+  const list = Sessions.forUser(req.user.id).map(s => ({
+    id: s.id, device: s.device, createdAt: s.createdAt, lastSeenAt: s.lastSeenAt,
+    current: s.id === req.user.jti
+  }));
+  res.json(list);
+});
+app.delete('/auth/sessions/:id', authMiddleware, (req, res) => {
+  // Отзыв текущей сессии — это просто "выйти с этого устройства"; следующий
+  // authMiddleware/socket-auth с этим jti получит 401, как и для любой чужой.
+  Sessions.revoke(req.params.id, req.user.id);
   res.json({ ok: true });
 });
 
@@ -878,16 +945,24 @@ function buildReplySnippet(replyTo) {
   return { id: orig.id, senderName: orig.senderName,
     text: orig.deleted ? 'Сообщение удалено' : (orig.text || (orig.voice ? '🎤 Голосовое' : (orig.sticker || (orig.file ? '📎 Файл' : '')))) };
 }
-// Планирует автоудаление сообщения через burnAfter секунд (используется везде, где можно отправить burn-сообщение)
-function scheduleBurn(chatId, messageId, burnAfter) {
-  if (!burnAfter) return;
-  setTimeout(() => {
+// Планирует автоудаление сообщения по абсолютному времени burnAt — общий
+// код для свежей отправки (scheduleBurn) и для досоздания таймеров при
+// старте сервера (rehydration, см. вызов Messages.pendingBurns() ниже).
+function scheduleBurnAt(chatId, messageId, burnAtIso) {
+  const fire = () => {
     const m = Messages.getById(messageId);
     if (m && !m.deleted) {
       Messages.patch(messageId, { deleted: true, text: null, file: null, voice: null, sticker: null });
       io.to(chatId).emit('message_deleted', { messageId, burned: true });
     }
-  }, burnAfter * 1000);
+  };
+  const delay = new Date(burnAtIso).getTime() - Date.now();
+  if (delay <= 0) fire(); else setTimeout(fire, delay);
+}
+// Планирует автоудаление сообщения через burnAfter секунд (используется везде, где можно отправить burn-сообщение)
+function scheduleBurn(chatId, messageId, burnAfter) {
+  if (!burnAfter) return;
+  scheduleBurnAt(chatId, messageId, new Date(Date.now() + burnAfter * 1000).toISOString());
 }
 
 // ── Queued messages (Background Sync from Service Worker) ─────────────────────
@@ -929,6 +1004,10 @@ app.post('/messages/queued', authMiddleware, async (req, res) => {
 // ── Upload ────────────────────────────────────────────────────────────────────
 app.post('/upload', authMiddleware, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Файл не загружен' });
+  if (!uploadLimiter(req.user.id)) {
+    try { fs.unlinkSync(req.file.path); } catch {}
+    return res.status(429).json({ error: 'Слишком много загрузок. Попробуй позже.' });
+  }
   const spoofError = rejectIfSpoofed(req.file.path, req.file.originalname);
   if (spoofError) {
     try { fs.unlinkSync(req.file.path); } catch {}
@@ -1015,6 +1094,7 @@ io.use((socket, next) => {
   try { payload = jwt.verify(socket.handshake.auth.token, JWT_SECRET); } catch { return next(new Error('Auth error')); }
   const u = Users.getById(payload.id);
   if (!u || (payload.tokenVersion || 0) !== (u.tokenVersion || 0)) return next(new Error('Auth error'));
+  if (payload.jti && !Sessions.exists(payload.jti)) return next(new Error('Auth error'));
   socket.user = payload;
   next();
 });
@@ -1023,6 +1103,7 @@ io.on('connection', (socket) => {
   const userId = socket.user.id;
   const wasOffline = !isOnline(userId);
   addOnline(userId, socket.id);
+  if (socket.user.jti) Sessions.touch(socket.user.jti);
   Chats.forUser(userId).forEach(c => socket.join(c.id));
   if (wasOffline) emitPresence(userId, true, null);
 
@@ -1033,6 +1114,10 @@ io.on('connection', (socket) => {
     if (clientId && Messages.getByClientId(clientId)) {
       const existing = Messages.getByClientId(clientId);
       if (typeof ack === 'function') ack({ ok: true, message: existing });
+      return;
+    }
+    if (!sendMessageLimiter(userId)) {
+      if (typeof ack === 'function') ack({ ok: false, error: 'rate_limited' });
       return;
     }
     const chat = Chats.getById(chatId);
@@ -1340,6 +1425,45 @@ io.on('connection', (socket) => {
 // ── Превью ссылок (Open Graph) ────────────────────────────────────────────────
 const linkPreviewCache = new Map(); // url -> { data, at }
 const LINK_CACHE_TTL = 6 * 3600 * 1000;
+const LINK_CACHE_MAX = 500; // без предела Map рос бы бесконечно на проде без рестартов
+function cacheLinkPreview(url, entry) {
+  linkPreviewCache.set(url, entry);
+  if (linkPreviewCache.size > LINK_CACHE_MAX) {
+    linkPreviewCache.delete(linkPreviewCache.keys().next().value);
+  }
+}
+
+// SSRF guard: до похода за ссылкой резолвим хост и отклоняем приватные/
+// loopback/link-local диапазоны (включая 169.254.169.254 — облачный
+// metadata-эндпоинт). Без этого авторизованный пользователь мог прислать
+// ссылку на внутреннюю сеть Railway и получить её содержимое через
+// og:title/description в ответе.
+function isPrivateIP(ip) {
+  if (net.isIP(ip) === 4) {
+    const [a, b] = ip.split('.').map(Number);
+    if (a === 10 || a === 127 || a === 0) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    return false;
+  }
+  if (net.isIP(ip) === 6) {
+    const low = ip.toLowerCase();
+    if (low === '::1') return true;
+    if (low.startsWith('fe80') || low.startsWith('fc') || low.startsWith('fd')) return true;
+    if (low.startsWith('::ffff:')) return isPrivateIP(low.slice(7));
+    return false;
+  }
+  return true; // не распарсили — считаем небезопасным
+}
+async function assertPublicUrl(urlStr) {
+  const u = new URL(urlStr);
+  if (!/^https?:$/.test(u.protocol)) throw new Error('blocked protocol');
+  const hostname = u.hostname.replace(/^\[|\]$/g, '');
+  if (hostname === 'localhost') throw new Error('blocked host');
+  const { address } = await dns.lookup(hostname);
+  if (isPrivateIP(address)) throw new Error('blocked host');
+}
 
 function extractMeta(html, baseUrl) {
   const pick = (...res) => { for (const re of res) { const m = html.match(re); if (m) return m[1].trim(); } return null; };
@@ -1366,18 +1490,30 @@ app.get('/link-preview', authMiddleware, async (req, res) => {
   const cached = linkPreviewCache.get(url);
   if (cached && Date.now() - cached.at < LINK_CACHE_TTL) return res.json(cached.data || {});
   try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 6000);
-    const r = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NexoraBot/1.0)' }, redirect: 'follow' });
-    clearTimeout(t);
+    // redirect:'manual' + per-hop check, so a redirect chain can't hop from a
+    // public URL to an internal one after the initial check passes.
+    let current = url;
+    let r;
+    for (let hop = 0; hop < 5; hop++) {
+      await assertPublicUrl(current);
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 6000);
+      r = await fetch(current, { signal: ctrl.signal, headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NexoraBot/1.0)' }, redirect: 'manual' });
+      clearTimeout(t);
+      if (r.status >= 300 && r.status < 400 && r.headers.get('location')) {
+        current = new URL(r.headers.get('location'), current).href;
+        continue;
+      }
+      break;
+    }
     const ct = r.headers.get('content-type') || '';
-    if (!ct.includes('text/html')) { linkPreviewCache.set(url, { data: null, at: Date.now() }); return res.json({}); }
+    if (!ct.includes('text/html')) { cacheLinkPreview(url, { data: null, at: Date.now() }); return res.json({}); }
     const html = (await r.text()).slice(0, 200000);
-    const data = extractMeta(html, r.url || url);
-    linkPreviewCache.set(url, { data, at: Date.now() });
+    const data = extractMeta(html, current);
+    cacheLinkPreview(url, { data, at: Date.now() });
     res.json(data || {});
   } catch (e) {
-    linkPreviewCache.set(url, { data: null, at: Date.now() });
+    cacheLinkPreview(url, { data: null, at: Date.now() });
     res.json({});
   }
 });
@@ -1402,6 +1538,7 @@ function contactIds(userId) {
 }
 
 app.post('/stories', authMiddleware, (req, res) => {
+  if (!storyLimiter(req.user.id)) return res.status(429).json({ error: 'Слишком много историй. Попробуй позже.' });
   const { mediaUrl, mediaType, caption } = req.body;
   if (!mediaUrl) return res.status(400).json({ error: 'Нет медиа' });
   const now = Date.now();
@@ -1488,4 +1625,28 @@ if (isProd) {
   app.get('*', (req, res) => res.sendFile(path.join(CLIENT_DIST, 'index.html')));
 }
 
+// Таймеры самоуничтожения ("burn after read") жили только в памяти и
+// выставлялись один раз при отправке сообщения — рестарт сервера во время
+// отсчёта отменял сгорание навсегда, и сообщение оставалось неудалённым.
+// На старте досоздаём таймеры для всех сообщений с ещё не наступившим burnAt.
+for (const m of Messages.pendingBurns()) scheduleBurnAt(m.chatId, m.id, m.burnAt);
+
 server.listen(PORT, () => console.log(`✅ Сервер запущен на порту ${PORT}`));
+
+// Прежний обработчик делал process.exit(0) сразу же, не давая Express/Socket.io
+// дослать уже начатые ответы/сообщения — на каждом Railway-редеплое обрывались
+// запросы в процессе. Теперь сначала останавливаем приём нового трафика и ждём
+// завершения текущего, с таймаутом на случай подвисшего соединения.
+function gracefulShutdown() {
+  console.log('Получен сигнал остановки, завершаем текущие запросы...');
+  const forceExit = setTimeout(() => process.exit(1), 10000);
+  forceExit.unref();
+  io.close(() => {
+    server.close(() => {
+      try { db.close(); } catch {}
+      process.exit(0);
+    });
+  });
+}
+process.on('SIGTERM', gracefulShutdown);
+process.on('SIGINT', gracefulShutdown);

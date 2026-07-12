@@ -1,28 +1,13 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { API_URL } from '../api.js';
 import { getAvatarColor } from '../avatarColor.js';
-import ProfilePage from './ProfilePage.jsx';
 import ChatItem from './ChatItem.jsx';
 import StoriesBar from './Stories.jsx';
+import { getInitials, formatTime, StatusDot } from '../uiUtils.jsx';
 
-const STATUS_LABELS = { online: 'В сети', away: 'Отошёл', dnd: 'Не беспокоить', offline: 'Не в сети' };
-
-function formatTime(iso) {
-  if (!iso) return '';
-  const d = new Date(iso), now = new Date();
-  if (now - d < 86400000 && d.getDate() === now.getDate())
-    return d.toLocaleTimeString('ru', { hour: '2-digit', minute: '2-digit' });
-  if (now - d < 604800000)
-    return d.toLocaleDateString('ru', { weekday: 'short' });
-  return d.toLocaleDateString('ru', { day: '2-digit', month: '2-digit' });
-}
-
-function getInitials(name) { return (name || '?')[0].toUpperCase(); }
-
-function StatusDot({ status, online }) {
-  const s = online === false ? 'offline' : (status || 'online');
-  return <span className={`status-dot ${s}`} />;
-}
+// Default tab is 'chats', so ProfilePage's code (19KB) doesn't need to be
+// in the initial bundle for everyone who never opens their own profile tab.
+const ProfilePage = lazy(() => import('./ProfilePage.jsx'));
 
 function usePersistedState(key, initial) {
   const [value, setValue] = useState(() => {
@@ -271,7 +256,9 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
         onTouchEnd={onContentTouchEnd}
       >
       {tab === 'profile' ? (
-        <ProfilePage user={currentUser} token={token} onUpdate={onProfileUpdate} onLogout={onLogout} />
+        <Suspense fallback={null}>
+          <ProfilePage user={currentUser} token={token} onUpdate={onProfileUpdate} onLogout={onLogout} />
+        </Suspense>
       ) : tab === 'chats' ? (
         <div className="chat-list">
           {!search.trim() && activeFolder === 'all' && <StoriesBar currentUser={currentUser} token={token} />}
@@ -339,7 +326,7 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
           {users.map(u => (
             <div key={u.id} className="user-item">
               <div className="avatar sm" style={!u.avatar ? { background: getAvatarColor(u.username) } : undefined} onClick={() => openPrivateChat(u.id)}>
-                {u.avatar ? <img src={u.avatar} alt={u.displayName || u.username} /> : getInitials(u.displayName || u.username)}
+                {u.avatar ? <img src={u.avatar} alt={u.displayName || u.username} loading="lazy" /> : getInitials(u.displayName || u.username)}
                 <StatusDot status={userStatuses.get(u.id) || 'online'} online={onlineUsers.has(u.id)} />
               </div>
               <div className="user-info" onClick={() => openPrivateChat(u.id)} style={{ flex: 1 }}>
@@ -429,7 +416,7 @@ function GroupUserPicker({ token, selected, setSelected }) {
           return (
             <div key={u.id} className={`user-item ${selected.includes(u.id) ? 'selected' : ''}`} onClick={() => toggle(u.id)}>
               <div className="avatar sm" style={!u.avatar ? { background: getAvatarColor(name) } : undefined}>
-                {u.avatar ? <img src={u.avatar} alt={name} /> : name[0].toUpperCase()}
+                {u.avatar ? <img src={u.avatar} alt={name} loading="lazy" /> : name[0].toUpperCase()}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="user-name">{name}</div>

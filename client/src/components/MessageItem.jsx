@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, memo } from 'react';
 import VoicePlayer from './VoicePlayer.jsx';
 import EmojiPicker from './EmojiPicker.jsx';
 import { VideoNotePlayer } from './VideoNote.jsx';
@@ -79,7 +79,7 @@ function LocationView({ location }) {
   );
 }
 
-export default function MessageItem({
+function MessageItem({
   msg, isOwn, showSender, groupStart = true, groupEnd = true, isRead, currentUserId, isPinned, highlighted,
   onReact, onReply, onEdit, onDelete, onPin, onUnpin, onScrollToReply, onForward,
   onImageClick, selectMode, selected, onToggleSelect, chatMemberCount, token, onVote, otherId
@@ -229,6 +229,7 @@ export default function MessageItem({
             src={fileMedia.src}
             alt={msg.file.name}
             className="msg-image"
+            loading="lazy"
             onClick={() => onImageClick?.(fileMedia.src)}
           />
         ) : (
@@ -319,3 +320,9 @@ export default function MessageItem({
     </div>
   );
 }
+
+// ChatWindow renders one of these per visible message; without memo, typing
+// a character in the composer (or any unrelated local state change) used to
+// re-render every bubble in the chat. Paired with useCallback on the handler
+// props in ChatWindow so this comparison actually short-circuits.
+export default memo(MessageItem);

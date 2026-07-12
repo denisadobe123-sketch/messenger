@@ -84,6 +84,7 @@ CREATE TABLE IF NOT EXISTS messages (
   burnAt    TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_msg_chat    ON messages(chatId);
+CREATE INDEX IF NOT EXISTS idx_msg_chat_created ON messages(chatId, createdAt);
 CREATE INDEX IF NOT EXISTS idx_msg_client  ON messages(clientId);
 CREATE INDEX IF NOT EXISTS idx_msg_sched   ON messages(scheduledAt);
 
@@ -104,6 +105,15 @@ CREATE TABLE IF NOT EXISTS muted_chats (
   chatId TEXT NOT NULL,
   PRIMARY KEY (userId, chatId)
 );
+
+CREATE TABLE IF NOT EXISTS sessions (
+  id         TEXT PRIMARY KEY,  -- jti embedded in the JWT
+  userId     TEXT NOT NULL,
+  device     TEXT,
+  createdAt  TEXT,
+  lastSeenAt TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(userId);
 
 CREATE TABLE IF NOT EXISTS stories (
   id        TEXT PRIMARY KEY,
@@ -326,10 +336,15 @@ const msgInsert = db.prepare(`INSERT INTO messages
   (id,clientId,chatId,senderId,senderName,text,file,voice,sticker,videoNote,forwardOf,replyTo,reactions,entities,preview,poll,location,edited,deleted,pinned,system,enc,createdAt,scheduledAt,burnAfter,burnAt)
   VALUES (@id,@clientId,@chatId,@senderId,@senderName,@text,@file,@voice,@sticker,@videoNote,@forwardOf,@replyTo,@reactions,@entities,@preview,@poll,@location,@edited,@deleted,@pinned,@system,@enc,@createdAt,@scheduledAt,@burnAfter,@burnAt)`);
 
-function readsForChat(chatId) {
-  const rows = db.prepare(`SELECT r.messageId, r.userId FROM message_reads r
-    JOIN messages m ON m.id = r.messageId WHERE m.chatId=?`).all(chatId);
+// Раньше scопился на весь чат (JOIN messages WHERE chatId=?) — на каждый GET
+// /messages/:chatId сканировал read-receipts по всей истории чата, даже если
+// запрошена страница из 1 сообщения. Теперь берём reads только для уже
+// выбранных id страницы.
+function readsForIds(ids) {
   const map = {};
+  if (!ids.length) return map;
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = db.prepare(`SELECT messageId, userId FROM message_reads WHERE messageId IN (${placeholders})`).all(...ids);
   for (const { messageId, userId } of rows) (map[messageId] ||= []).push(userId);
   return map;
 }
@@ -340,7 +355,6 @@ const Messages = {
     clientId ? rowToMessage(db.prepare('SELECT * FROM messages WHERE clientId=?').get(clientId)) : null,
   // Сообщения чата с пагинацией (limit последних, или before для подгрузки выше)
   forChat: (chatId, { before, limit = 60 } = {}) => {
-    const reads = readsForChat(chatId);
     let rows;
     if (before) {
       rows = db.prepare(
@@ -351,6 +365,7 @@ const Messages = {
         'SELECT * FROM messages WHERE chatId=? AND scheduledAt IS NULL ORDER BY createdAt DESC LIMIT ?'
       ).all(chatId, limit).reverse();
     }
+    const reads = readsForIds(rows.map(r => r.id));
     return rows.map(r => rowToMessage(r, reads));
   },
   // rowid — тай-брейкер для сообщений с одинаковым createdAt (например, два
@@ -487,7 +502,11 @@ const Messages = {
     db.prepare('SELECT * FROM messages WHERE chatId=? AND senderId=? AND scheduledAt IS NOT NULL ORDER BY scheduledAt ASC')
       .all(chatId, userId).map(r => rowToMessage(r)),
   markSent: (id, createdAt) =>
-    db.prepare('UPDATE messages SET scheduledAt=NULL, createdAt=? WHERE id=?').run(createdAt || new Date().toISOString(), id)
+    db.prepare('UPDATE messages SET scheduledAt=NULL, createdAt=? WHERE id=?').run(createdAt || new Date().toISOString(), id),
+  // Сообщения с ещё не сгоревшим burn-таймером — для досоздания setTimeout
+  // при старте сервера (см. index.js).
+  pendingBurns: () =>
+    db.prepare('SELECT id, chatId, burnAt FROM messages WHERE burnAt IS NOT NULL AND deleted=0').all()
 };
 
 // ── Blocked ─────────────────────────────────────────────────────────────────────
@@ -548,6 +567,19 @@ const Stories = {
   purgeExpired: () => db.prepare('DELETE FROM stories WHERE expiresAt <= ?').run(new Date().toISOString())
 };
 
+// ── Sessions (одна строка = одно устройство/вход, для logout по устройству) ───
+const Sessions = {
+  create: (id, userId, device) => {
+    const now = new Date().toISOString();
+    db.prepare('INSERT INTO sessions (id,userId,device,createdAt,lastSeenAt) VALUES (?,?,?,?,?)').run(id, userId, device || null, now, now);
+  },
+  touch: (id) => db.prepare('UPDATE sessions SET lastSeenAt=? WHERE id=?').run(new Date().toISOString(), id),
+  exists: (id) => !!db.prepare('SELECT 1 FROM sessions WHERE id=?').get(id),
+  forUser: (userId) => db.prepare('SELECT * FROM sessions WHERE userId=? ORDER BY lastSeenAt DESC').all(userId),
+  revoke: (id, userId) => db.prepare('DELETE FROM sessions WHERE id=? AND userId=?').run(id, userId),
+  revokeAllForUser: (userId) => db.prepare('DELETE FROM sessions WHERE userId=?').run(userId)
+};
+
 // ── Одноразовая миграция из db.json ──────────────────────────────────────────────
 function migrateFromJsonIfNeeded() {
   const userCount = db.prepare('SELECT count(*) n FROM users').get().n;
@@ -574,4 +606,4 @@ function migrateFromJsonIfNeeded() {
 }
 migrateFromJsonIfNeeded();
 
-module.exports = { db, Users, Chats, Messages, Blocked, Muted, Stories };
+module.exports = { db, Users, Chats, Messages, Blocked, Muted, Stories, Sessions };

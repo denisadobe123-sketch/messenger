@@ -33,8 +33,13 @@ export default function LinkPreview({ url, token }) {
   }, [url, token]);
 
   if (!data) return null;
+  // data.url is server-scraped og:url — unlike format.jsx's own autolinker,
+  // it wasn't constrained to http(s), so a crafted page could return a
+  // javascript: URL here. Fall back to the original (already user-typed,
+  // already restricted to http(s) by firstUrl()) link if it isn't safe.
+  const href = /^https?:\/\//i.test(data.url || '') ? data.url : url;
   return (
-    <a className="link-preview" href={data.url || url} target="_blank" rel="noreferrer noopener"
+    <a className="link-preview" href={href} target="_blank" rel="noreferrer noopener"
        onClick={(e) => e.stopPropagation()}>
       {data.image && <img className="link-preview-img" src={data.image} alt="" loading="lazy" />}
       <div className="link-preview-body">

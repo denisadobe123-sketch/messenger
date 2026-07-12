@@ -154,7 +154,7 @@ export default function GroupCallModal({ chat, currentUser, socket, callType, on
   const mins = Math.floor(duration / 60), secs = duration % 60;
 
   return (
-    <div className="call-overlay">
+    <div className="call-overlay" role="dialog" aria-modal="true" aria-label={isVideo ? 'Групповой видеозвонок' : 'Групповой аудиозвонок'}>
       <div className="call-status-text" style={{ marginBottom: 12 }}>
         {mediaErr || `${chat.displayName || chat.name} · ${total} в звонке · ${mins}:${secs.toString().padStart(2, '0')}`}
       </div>

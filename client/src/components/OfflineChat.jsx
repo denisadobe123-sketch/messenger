@@ -2,8 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { bleMesh } from '../bleMesh.js';
 import { getAvatarColor } from '../avatarColor.js';
 import { Capacitor } from '@capacitor/core';
-
-function getInitials(name) { return (name || '?')[0].toUpperCase(); }
+import { getInitials } from '../uiUtils.jsx';
 
 export default function OfflineChat({ currentUser, onClose }) {
   const [status, setStatus] = useState('idle'); // idle | starting | active | error
@@ -144,7 +143,7 @@ export default function OfflineChat({ currentUser, onClose }) {
                   <div key={peer.deviceId} className="offline-peer-item" onClick={() => setSelectedPeer(peer)}>
                     <div className="avatar sm" style={{ background: getAvatarColor(peer.user.username) }}>
                       {peer.user.avatar
-                        ? <img src={peer.user.avatar} alt="" />
+                        ? <img src={peer.user.avatar} alt="" loading="lazy" />
                         : getInitials(peer.user.displayName || peer.user.username)}
                       <span className="status-dot online" />
                     </div>
