@@ -5,7 +5,7 @@ import EmojiPicker from './EmojiPicker.jsx';
 import { VideoNoteRecorder } from './VideoNote.jsx';
 import { getSocket } from '../socket.js';
 import { API_URL } from '../api.js';
-import { tap } from '../native.js';
+import { tap, hideKeyboard, showKeyboard } from '../native.js';
 import { enqueue } from '../offlineQueue.js';
 import { encryptFor, decryptFrom, encryptBytesFor } from '../e2e.js';
 import { useDecryptedMedia } from '../useDecryptedMedia.js';
@@ -1265,7 +1265,14 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
               ref={inputRef}
               className="msg-input" placeholder="Написать сообщение..." value={text}
               onChange={handleTextChange} onKeyDown={onKeyDown} rows={1}
-              onFocus={() => setShowEmojiPicker(false)}
+              onFocus={() => {
+                // blur() снимает DOM-фокус, но не гарантированно скрывает
+                // нативную Android-клавиатуру — и наоборот, .focus() не
+                // всегда сам её показывает после программного hide(). Явно
+                // просим Capacitor Keyboard plugin показать её обратно.
+                setShowEmojiPicker(false);
+                showKeyboard();
+              }}
               onBlur={() => setTimeout(() => setShowFormatBar(false), 200)}
               onInput={e => { e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'; }}
             />
@@ -1274,9 +1281,11 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
             <button
               className="attach-btn emoji-toggle-btn"
               onClick={() => {
-                // Клавиатура должна спрятаться, а пикер — занять её место
-                // (не всплывать поверх и не сосуществовать с ней).
-                if (!showEmojiPicker) inputRef.current?.blur();
+                // Клавиатура должна спрятаться, а пикер — занять её место.
+                // blur() одного DOM-фокуса недостаточно (см. hideKeyboard) —
+                // нативную клавиатуру Capacitor WebView прячет только сам
+                // Keyboard plugin.
+                if (!showEmojiPicker) { inputRef.current?.blur(); hideKeyboard(); }
                 setShowEmojiPicker(p => !p);
               }}
               title="Эмодзи и стикеры"

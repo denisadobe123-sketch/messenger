@@ -65,3 +65,20 @@ export function vibrateSuccess() {
   if (!Haptics) return;
   try { Haptics.notification({ type: 'SUCCESS' }); } catch {}
 }
+
+// Blurring the <textarea> in JS does NOT reliably dismiss the native
+// Android soft keyboard inside a Capacitor WebView — DOM focus state and
+// the OS keyboard's visibility aren't strictly tied together. Use the
+// Keyboard plugin directly instead (falls back to a no-op on web, where
+// there's no native keyboard to control).
+export async function hideKeyboard() {
+  const ok = await loadPlugins();
+  if (!ok || !Keyboard) return;
+  try { await Keyboard.hide(); } catch {}
+}
+
+export async function showKeyboard() {
+  const ok = await loadPlugins();
+  if (!ok || !Keyboard) return;
+  try { await Keyboard.show(); } catch {}
+}
