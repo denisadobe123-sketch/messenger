@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { queueSize } from '../offlineQueue.js';
+import { SlashIcon, ClockIcon } from '../icons.jsx';
 
 export default function NetworkBadge() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -32,7 +33,7 @@ export default function NetworkBadge() {
   return (
     <div className="network-badge visible" title={!isOnline ? 'Нет интернета' : `${queued} сообщ. в очереди`}>
       <span className="network-badge-icon" style={{ color: !isOnline ? '#ff5a5a' : '#f59e0b' }}>
-        {!isOnline ? '🔌' : '⏳'}
+        {!isOnline ? <SlashIcon /> : <ClockIcon />}
       </span>
       <span className="network-badge-label" style={{ color: !isOnline ? '#ff5a5a' : '#f59e0b' }}>
         {!isOnline ? 'Оффлайн' : `${queued} в очереди`}
