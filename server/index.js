@@ -11,6 +11,7 @@ const os = require('os');
 const dns = require('dns').promises;
 const net = require('net');
 const webpush = require('web-push');
+const admin = require('firebase-admin');
 const { db, Users, Chats, Messages, Blocked, Muted, Stories, Sessions } = require('./db');
 const { encryptBuffer, decryptBuffer } = require('./crypto');
 
@@ -91,7 +92,6 @@ function bumpTokenVersion(userId) {
   if (u) Users.update(userId, { tokenVersion: (u.tokenVersion || 0) + 1 });
 }
 const PORT = process.env.PORT || 80;
-const FCM_SERVER_KEY = process.env.FCM_SERVER_KEY || null;
 const APP_VERSION = process.env.APP_VERSION || '1.0.0';
 const APK_DOWNLOAD_URL = process.env.APK_DOWNLOAD_URL || null;
 
@@ -128,6 +128,25 @@ if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
   }
 }
 webpush.setVapidDetails('mailto:admin@messenger.app', VAPID_KEYS.publicKey, VAPID_KEYS.privateKey);
+
+// ── Firebase (native FCM push) ─────────────────────────────────────────────
+// Service-account JSON grants full send access to the Firebase project, so
+// it must come from the environment only — set FIREBASE_SERVICE_ACCOUNT in
+// Railway to the full JSON key downloaded from Firebase Console → Project
+// Settings → Service Accounts. Firebase project setup itself happens in the
+// console, not here.
+let fcmMessaging = null;
+if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+  try {
+    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+    fcmMessaging = admin.messaging();
+  } catch (e) {
+    console.error('[WARN] FIREBASE_SERVICE_ACCOUNT задан, но не распарсился — нативный push (FCM) работать не будет:', e.message);
+  }
+} else {
+  console.warn('[WARN] FIREBASE_SERVICE_ACCOUNT не задан в окружении — нативный push (FCM) работать не будет. Задай переменную в Railway.');
+}
 
 function loadPushSubs() {
   try { return JSON.parse(fs.readFileSync(PUSH_SUBS_FILE, 'utf8')); } catch { return {}; }
@@ -426,22 +445,18 @@ function pushSystemMessage(chatId, text) {
   return msg;
 }
 
-// ── FCM Push ──────────────────────────────────────────────────────────────────
+// ── FCM Push (native Android, via Firebase Admin SDK) ──────────────────────
 async function sendPushToUser(userId, title, body) {
-  if (!FCM_SERVER_KEY) return;
+  if (!fcmMessaging) return;
   const fcm = loadFCM();
   const tokens = fcm[userId] || [];
   if (!tokens.length) return;
   try {
-    const res = await fetch('https://fcm.googleapis.com/fcm/send', {
-      method: 'POST',
-      headers: { 'Authorization': `key=${FCM_SERVER_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ registration_ids: tokens, notification: { title, body, sound: 'default' }, priority: 'high' })
-    });
-    const data = await res.json();
-    // Удаляем невалидные токены
-    if (data.results) {
-      const valid = tokens.filter((_, i) => !data.results[i].error);
+    const res = await fcmMessaging.sendEachForMulticast({ tokens, notification: { title, body } });
+    // Удаляем токены, которые FCM считает недействительными (например,
+    // приложение удалили с устройства).
+    if (res.responses.some(r => !r.success)) {
+      const valid = tokens.filter((_, i) => res.responses[i].success);
       fcm[userId] = valid;
       saveFCM(fcm);
     }

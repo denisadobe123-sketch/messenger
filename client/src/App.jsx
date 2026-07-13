@@ -8,7 +8,7 @@ import { connectSocket, disconnectSocket, getSocket } from './socket.js';
 import { API_URL } from './api.js';
 import { getTheme, applyTheme } from './theme.js';
 import { initPushNotifications, removePushToken } from './pushNotifications.js';
-import { initNative, tap, registerBackButton } from './native.js';
+import { initNative, tap, registerBackButton, initNativePush } from './native.js';
 import UpdateChecker from './components/UpdateChecker.jsx';
 import NetworkBadge from './components/NetworkBadge.jsx';
 import PasscodeLock from './components/PasscodeLock.jsx';
@@ -161,6 +161,7 @@ export default function App() {
     if (!user || !token) return;
     requestNotificationPermission();
     initPushNotifications(token);
+    initNativePush(token); // настоящий FCM-push для нативного APK, будит закрытое приложение
     ensureKeys(token); // публикуем E2E-ключ для секретных чатов
 
     const socket = connectSocket(token);

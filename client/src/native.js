@@ -1,6 +1,7 @@
 import { Capacitor } from '@capacitor/core';
+import { API_URL } from './api.js';
 
-let StatusBar, Style, Haptics, ImpactStyle, Keyboard, CapApp;
+let StatusBar, Style, Haptics, ImpactStyle, Keyboard, CapApp, PushNotifications;
 
 // Динамически грузим плагины только на нативной платформе
 async function loadPlugins() {
@@ -15,6 +16,8 @@ async function loadPlugins() {
     Keyboard = k.Keyboard;
     const a = await import('@capacitor/app');
     CapApp = a.App;
+    const p = await import('@capacitor/push-notifications');
+    PushNotifications = p.PushNotifications;
     return true;
   } catch {
     return false;
@@ -81,4 +84,35 @@ export async function showKeyboard() {
   const ok = await loadPlugins();
   if (!ok || !Keyboard) return;
   try { await Keyboard.show(); } catch {}
+}
+
+// Настоящий OS-уровневый push (FCM) — в отличие от pushNotifications.js
+// (браузерный Web Push через Service Worker), этот будит процесс приложения
+// даже когда он полностью закрыт/выгружен системой. Каждый шаг обёрнут в
+// свой try/catch — прошлая попытка подключить этот плагин роняла приложение
+// при выдаче разрешения, повторять это нельзя.
+export async function initNativePush(token) {
+  const ok = await loadPlugins();
+  if (!ok || !PushNotifications) return;
+  try {
+    const perm = await PushNotifications.requestPermissions();
+    if (perm?.receive !== 'granted') return;
+  } catch (e) { console.warn('Push permission request failed:', e?.message); return; }
+
+  try {
+    PushNotifications.addListener('registration', async (result) => {
+      try {
+        await fetch(`${API_URL}/fcm-token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ token: result.value })
+        });
+      } catch (e) { console.warn('FCM token upload failed:', e?.message); }
+    });
+    PushNotifications.addListener('registrationError', (err) => {
+      console.warn('FCM registration error:', err?.error || err);
+    });
+  } catch (e) { console.warn('Push listener setup failed:', e?.message); }
+
+  try { await PushNotifications.register(); } catch (e) { console.warn('Push register failed:', e?.message); }
 }
