@@ -1176,25 +1176,13 @@ img.jumbo-emoji { width: 64px; height: 64px; vertical-align: unset; }
     display: flex;
   }
 
-  /* Шапка чата — плоская, без рамки/тени, сливается с фоном (как в Telegram). */
+  /* Шапка чата — «шторка»: во всю ширину, без тени/отступов, но нижние
+     углы скруглены, чтобы стык с фоном чата был дугой, а не прямой линией. */
   .chat-header {
     padding-top: max(14px, env(safe-area-inset-top));
-    margin: 0; border-radius: 0;
+    margin: 0; border-radius: 0 0 22px 22px;
     border-bottom: none;
     box-shadow: none;
-  }
-  /* Скруглённая «шторка»-хэндл сверху — как системный жест-бар снизу экрана,
-     только чуть шире. Чисто декоративная, по центру шапки. */
-  .chat-header::before {
-    content: '';
-    position: absolute;
-    top: max(6px, env(safe-area-inset-top));
-    left: 50%; transform: translateX(-50%);
-    width: 64px; height: 4px;
-    border-radius: 999px;
-    background: var(--text-muted);
-    opacity: 0.45;
-    pointer-events: none;
   }
 
   /* Кнопка назад — всегда видна */
