@@ -909,11 +909,6 @@ body {
 }
 .send-btn:hover { box-shadow: 0 0 26px var(--accent-glow); }
 
-.auth-btn {
-  background: linear-gradient(135deg, var(--accent), var(--accent-hover));
-  color: var(--accent-ink);
-  box-shadow: 0 0 20px var(--accent-glow);
-}
 .auth-tab.active { background: var(--accent); color: var(--accent-ink); }
 .btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent-hover)); color: var(--accent-ink); box-shadow: 0 0 16px var(--accent-glow); }
 .btn-primary:hover { background: linear-gradient(135deg, var(--accent-hover), var(--accent)); }
@@ -942,11 +937,6 @@ body {
 
 ::selection { background: rgba(0,229,192,0.3); }
 
-/* Neon focus rings */
-.auth-input:focus, .modal-input:focus, .status-select:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-glow);
-}
 .search-input:focus { box-shadow: 0 0 0 2px var(--accent-glow); }
 
 /* ── Stickers ────────────────────────────────────── */
@@ -2283,16 +2273,12 @@ img.jumbo-emoji { width: 64px; height: 64px; vertical-align: unset; }
     width: 84px !important;
     height: 84px !important;
     font-size: 30px !important;
-    box-shadow: 0 0 0 3px var(--bg-primary), 0 0 0 5px var(--accent), 0 8px 24px rgba(0,229,192,0.3) !important;
   }
   .avatar-upload-btn {
     margin-top: 10px !important;
     padding: 9px 20px !important;
     font-size: 14px !important;
     border-radius: 12px !important;
-    background: color-mix(in srgb, var(--accent) 12%, transparent) !important;
-    color: var(--accent) !important;
-    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent) !important;
     font-weight: 600 !important;
   }
 
@@ -2366,18 +2352,6 @@ img.jumbo-emoji { width: 64px; height: 64px; vertical-align: unset; }
 }
 
 
-/* ── Buttons: diagonal sheen sweep on hover ── */
-.send-btn, .auth-btn, .btn-primary {
-  position: relative; overflow: hidden;
-}
-.send-btn::before, .auth-btn::before, .btn-primary::before {
-  content: ''; position: absolute; inset: 0;
-  background: linear-gradient(115deg, transparent 40%, rgba(255,255,255,0.35) 50%, transparent 60%);
-  background-size: 220% 220%; background-position: 150% 0;
-  transition: background-position 0.55s ease;
-  pointer-events: none;
-}
-.send-btn:hover::before, .auth-btn:hover::before, .btn-primary:hover::before { background-position: -50% 0; }
 
 /* ── Living backgrounds: slow drifting glow instead of static gradient ──
    z-index:-1 keeps this strictly behind chat-window's own children without
@@ -2395,21 +2369,6 @@ img.jumbo-emoji { width: 64px; height: 64px; vertical-align: unset; }
 @keyframes noChatFloat {
   0%, 100% { transform: translateY(0); box-shadow: 0 0 40px var(--accent-glow); }
   50%      { transform: translateY(-6px); box-shadow: 0 0 56px var(--accent-glow); }
-}
-
-/* ── Auth card: subtle animated gradient edge ── */
-.auth-box {
-  position: relative;
-  background:
-    linear-gradient(var(--bg-secondary), var(--bg-secondary)) padding-box,
-    linear-gradient(135deg, var(--accent), transparent 40%, transparent 60%, var(--accent)) border-box;
-  border: 1px solid transparent;
-  background-size: 100% 100%, 260% 260%;
-  animation: authAppear 0.4s cubic-bezier(0.34,1.2,0.64,1) both, authEdge 9s ease infinite;
-}
-@keyframes authEdge {
-  0%, 100% { background-position: 0% 0%, 0% 50%; }
-  50%      { background-position: 0% 0%, 100% 50%; }
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -2460,7 +2419,6 @@ img.jumbo-emoji { width: 64px; height: 64px; vertical-align: unset; }
   background: radial-gradient(ellipse 70% 60% at 50% 0%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 70%);
 }
 .profile-page-header .avatar.lg { box-shadow: 0 6px 24px var(--accent-glow); }
-.status-select:focus { box-shadow: 0 0 0 3px var(--accent-glow); }
 
 /* ── Toasts + generic empty states ── */
 .toast-item {
