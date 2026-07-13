@@ -10,7 +10,7 @@ function createWindow() {
     height: 720,
     minWidth: 800,
     minHeight: 500,
-    title: 'Messenger',
+    title: 'Nexora',
     webPreferences: { nodeIntegration: false, contextIsolation: true },
     backgroundColor: '#17212b',
     show: false

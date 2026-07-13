@@ -11,8 +11,8 @@
     "electron-builder": "^24.9.1"
   },
   "build": {
-    "appId": "com.messenger.app",
-    "productName": "Messenger",
+    "appId": "com.nexora.messenger",
+    "productName": "Nexora",
     "directories": {
       "output": "../dist-electron2"
     },
@@ -20,7 +20,7 @@
       "main.js"
     ],
     "win": {
-      "target": "dir",
+      "target": "portable",
       "icon": "../client/public/icon-512.png",
       "signAndEditExecutable": false
     }
