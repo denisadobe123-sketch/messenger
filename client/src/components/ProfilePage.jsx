@@ -5,6 +5,10 @@ import { getAvatarColor } from '../avatarColor.js';
 import { hasPasscode, setPasscode, removePasscode } from '../passcode.js';
 import { WALLPAPERS, getWallpaper, setWallpaper } from '../wallpaper.js';
 import { STATUS_PICKER_LABELS } from '../uiUtils.jsx';
+import {
+  ShieldIcon, EyeIcon, MonitorIcon, SmartphoneIcon, MoonIcon, SunIcon,
+  LockIcon, LogOutIcon, ChevronRightIcon, ImageIcon, SlashIcon, CheckIcon
+} from '../icons.jsx';
 
 export default function ProfilePage({ user, token, onUpdate, onLogout }) {
   const [displayName, setDisplayName] = useState(user.displayName || user.username || '');
@@ -123,89 +127,82 @@ export default function ProfilePage({ user, token, onUpdate, onLogout }) {
 
       <div className="profile-page-body">
 
-        {user.email && (
-          <div className="profile-section">
-            <label>Email</label>
-            <div style={{
-              padding: '10px 14px',
-              background: 'var(--bg-secondary)',
-              borderRadius: 10,
-              border: '1px solid var(--border)',
-              color: 'var(--text-secondary)',
-              fontSize: 14
-            }}>
-              {user.email}
+        <div className="settings-group">
+
+          {user.email && (
+            <div className="profile-section">
+              <label>Email</label>
+              <div style={{
+                padding: '10px 14px',
+                background: 'var(--bg-primary)',
+                borderRadius: 10,
+                border: '1px solid var(--border)',
+                color: 'var(--text-secondary)',
+                fontSize: 14
+              }}>
+                {user.email}
+              </div>
             </div>
+          )}
+
+          <div className="profile-section">
+            <label>Имя (видят другие)</label>
+            <input className="modal-input" placeholder="Твоё имя" value={displayName} onChange={e => setDisplayName(e.target.value)} />
           </div>
-        )}
 
-        <div className="profile-section">
-          <label>Имя (видят другие)</label>
-          <input className="modal-input" placeholder="Твоё имя" value={displayName} onChange={e => setDisplayName(e.target.value)} />
-        </div>
-
-        <div className="profile-section">
-          <label>Юзернейм</label>
-          <div className="auth-input-wrap" style={{ marginBottom: 0 }}>
-            <span className="auth-input-prefix">@</span>
-            <input
-              className="auth-input auth-input-handle"
-              style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 14px', color: 'var(--text-primary)' }}
-              placeholder="username"
-              value={handle}
-              onChange={e => onHandleChange(e.target.value)}
-            />
+          <div className="profile-section">
+            <label>Юзернейм</label>
+            <div className="auth-input-wrap" style={{ marginBottom: 0 }}>
+              <span className="auth-input-prefix">@</span>
+              <input
+                className="auth-input auth-input-handle"
+                style={{ background: 'var(--bg-primary)', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 14px', color: 'var(--text-primary)' }}
+                placeholder="username"
+                value={handle}
+                onChange={e => onHandleChange(e.target.value)}
+              />
+            </div>
+            <span className="profile-handle-hint">Другие могут найти тебя по @{handle || '...'}</span>
           </div>
-          <span className="profile-handle-hint">Другие могут найти тебя по @{handle || '...'}</span>
-        </div>
 
-        <div className="profile-section">
-          <label>О себе</label>
-          <textarea className="modal-input" rows={3} placeholder="Расскажи о себе..." value={bio} onChange={e => setBio(e.target.value)} />
-        </div>
+          <div className="profile-section">
+            <label>О себе</label>
+            <textarea className="modal-input" rows={3} placeholder="Расскажи о себе..." value={bio} onChange={e => setBio(e.target.value)} />
+          </div>
 
-        <div className="profile-section">
-          <label>Статус</label>
-          <select className="status-select" value={status} onChange={e => setStatus(e.target.value)}>
-            {Object.entries(STATUS_PICKER_LABELS).map(([val, label]) => <option key={val} value={val}>{label}</option>)}
-          </select>
-        </div>
+          <div className="profile-section">
+            <label>Статус</label>
+            <select className="status-select" value={status} onChange={e => setStatus(e.target.value)}>
+              {Object.entries(STATUS_PICKER_LABELS).map(([val, label]) => <option key={val} value={val}>{label}</option>)}
+            </select>
+          </div>
 
-        <div className="profile-section">
-          <label>Тема оформления</label>
-          <button className="btn btn-secondary" style={{ width: '100%' }} onClick={handleToggleTheme}>
-            {theme === 'dark' ? '🌙 Тёмная — нажми для светлой' : '☀️ Светлая — нажми для тёмной'}
+          <button className="settings-row" onClick={handleToggleTheme}>
+            <span className="settings-row-icon">{theme === 'dark' ? <MoonIcon /> : <SunIcon />}</span>
+            <span className="settings-row-label">Тема оформления</span>
+            <span className="settings-row-value">{theme === 'dark' ? 'Тёмная' : 'Светлая'}</span>
           </button>
+
+          {msg && <div className="success-msg">{msg}</div>}
+          {err && <div className="error-msg">{err}</div>}
+
+          <button className="btn btn-primary" style={{ width: '100%', marginTop: 4 }} onClick={saveProfile} disabled={loading}>
+            {loading ? 'Сохраняем...' : 'Сохранить изменения'}
+          </button>
+
         </div>
-
-        {msg && <div className="success-msg">{msg}</div>}
-        {err && <div className="error-msg">{err}</div>}
-
-        <button className="btn btn-primary" style={{ width: '100%', marginBottom: 24 }} onClick={saveProfile} disabled={loading}>
-          {loading ? 'Сохраняем...' : 'Сохранить изменения'}
-        </button>
-
-        <div className="profile-divider" />
 
         <SecuritySettings token={token} />
 
-        <div className="profile-divider" />
-
         <SessionsSettings token={token} />
-
-        <div className="profile-divider" />
 
         <PrivacySettings token={token} />
 
-        <div className="profile-divider" />
-
         <WallpaperPicker />
 
-        <div className="profile-divider" />
-
         {blockedUsers.length > 0 && (
-          <>
-            <h3 style={{ fontSize: 15, margin: '20px 0 14px' }}>🚫 Заблокированные</h3>
+          <div className="settings-group">
+            <div className="settings-group-label"><SlashIcon /> Заблокированные</div>
             {blockedUsers.map(u => (
               <div key={u.id} className="blocked-user-row">
                 <div className="avatar sm" style={{ background: getAvatarColor(u.username), flexShrink: 0 }}>
@@ -220,13 +217,15 @@ export default function ProfilePage({ user, token, onUpdate, onLogout }) {
                 </button>
               </div>
             ))}
-            <div className="profile-divider" />
-          </>
+          </div>
         )}
 
-        <button className="btn btn-danger" style={{ width: '100%', marginTop: 20 }} onClick={onLogout}>
-          Выйти из аккаунта
-        </button>
+        <div className="settings-group">
+          <button className="settings-row danger" onClick={onLogout}>
+            <span className="settings-row-icon"><LogOutIcon /></span>
+            <span className="settings-row-label">Выйти из аккаунта</span>
+          </button>
+        </div>
 
       </div>
     </div>
@@ -265,8 +264,8 @@ function PrivacySettings({ token }) {
   }
 
   return (
-    <div>
-      <h3 style={{ fontSize: 15, margin: '20px 0 14px' }}>🛡 Приватность</h3>
+    <div className="settings-group">
+      <div className="settings-group-label"><EyeIcon /> Приватность</div>
       <div className="profile-section">
         <label>Кто видит «был(а) в сети»</label>
         <select className="status-select" value={priv.lastSeen} onChange={e => update('lastSeen', e.target.value)}>
@@ -288,8 +287,8 @@ function WallpaperPicker() {
   const [active, setActive] = useState(getWallpaper());
   function pick(id) { setWallpaper(id); setActive(id); }
   return (
-    <div>
-      <h3 style={{ fontSize: 15, margin: '20px 0 14px' }}>🖼 Обои чата</h3>
+    <div className="settings-group">
+      <div className="settings-group-label"><ImageIcon /> Обои чата</div>
       <div className="wallpaper-grid">
         {WALLPAPERS.map(w => (
           <button key={w.id} className={`wallpaper-swatch ${active === w.id ? 'active' : ''}`}
@@ -364,20 +363,24 @@ function SecuritySettings({ token }) {
   }
 
   return (
-    <div>
-      <h3 style={{ fontSize: 15, margin: '20px 0 14px' }}>🔐 Безопасность</h3>
+    <div className="settings-group">
+      <div className="settings-group-label"><ShieldIcon /> Безопасность</div>
 
-      <div className="profile-section">
-        <label>Код-пароль на вход</label>
-        {pcOn ? (
-          <button className="btn btn-secondary" style={{ width: '100%' }} onClick={disablePasscode}>
-            🔓 Отключить код-пароль
-          </button>
-        ) : !showPcForm ? (
-          <button className="btn btn-secondary" style={{ width: '100%' }} onClick={() => setShowPcForm(true)}>
-            🔒 Установить код-пароль
-          </button>
-        ) : (
+      {pcOn ? (
+        <button className="settings-row" onClick={disablePasscode}>
+          <span className="settings-row-icon"><LockIcon /></span>
+          <span className="settings-row-label">Код-пароль на вход</span>
+          <span className="settings-row-value">Включён</span>
+        </button>
+      ) : !showPcForm ? (
+        <button className="settings-row" onClick={() => setShowPcForm(true)}>
+          <span className="settings-row-icon"><LockIcon /></span>
+          <span className="settings-row-label">Код-пароль на вход</span>
+          <ChevronRightIcon />
+        </button>
+      ) : (
+        <div className="profile-section" style={{ paddingTop: 10 }}>
+          <label>Код-пароль на вход</label>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <input className="modal-input" type="password" inputMode="numeric" maxLength={4}
               placeholder="Введи 4-значный PIN" value={pin1} onChange={e => setPin1(e.target.value.replace(/\D/g,'').slice(0,4))} autoFocus />
@@ -389,17 +392,19 @@ function SecuritySettings({ token }) {
               <button className="btn btn-primary" style={{ flex: 1 }} onClick={savePasscode}>Сохранить</button>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      <div className="profile-section">
-        <label>Двухэтапная проверка (облачный пароль)</label>
-        {twoFa.enabled ? (
-          !showDisable2fa ? (
-            <button className="btn btn-secondary" style={{ width: '100%' }} onClick={() => setShowDisable2fa(true)}>
-              ✅ Включена — отключить
-            </button>
-          ) : (
+      {twoFa.enabled ? (
+        !showDisable2fa ? (
+          <button className="settings-row" onClick={() => setShowDisable2fa(true)}>
+            <span className="settings-row-icon"><CheckIcon /></span>
+            <span className="settings-row-label">Двухэтапная проверка</span>
+            <span className="settings-row-value">Включена</span>
+          </button>
+        ) : (
+          <div className="profile-section" style={{ paddingTop: 10 }}>
+            <label>Двухэтапная проверка</label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <input className="modal-input" type="password" placeholder="Текущий облачный пароль" value={curPw} onChange={e => setCurPw(e.target.value)} autoFocus />
               {err2fa && <div className="error-msg">{err2fa}</div>}
@@ -408,12 +413,17 @@ function SecuritySettings({ token }) {
                 <button className="btn btn-danger" style={{ flex: 1 }} onClick={disable2fa}>Отключить</button>
               </div>
             </div>
-          )
-        ) : !show2faForm ? (
-          <button className="btn btn-secondary" style={{ width: '100%' }} onClick={() => setShow2faForm(true)}>
-            Включить облачный пароль
-          </button>
-        ) : (
+          </div>
+        )
+      ) : !show2faForm ? (
+        <button className="settings-row" onClick={() => setShow2faForm(true)}>
+          <span className="settings-row-icon"><ShieldIcon /></span>
+          <span className="settings-row-label">Двухэтапная проверка</span>
+          <ChevronRightIcon />
+        </button>
+      ) : (
+        <div className="profile-section" style={{ paddingTop: 10 }}>
+          <label>Облачный пароль</label>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <input className="modal-input" type="password" placeholder="Новый облачный пароль" value={pw} onChange={e => setPw(e.target.value)} autoFocus />
             <input className="modal-input" placeholder="Подсказка (необязательно)" value={hint} onChange={e => setHint(e.target.value)} />
@@ -423,8 +433,8 @@ function SecuritySettings({ token }) {
               <button className="btn btn-primary" style={{ flex: 1 }} onClick={save2fa} disabled={!pw}>Сохранить</button>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {note && <div className="success-msg">{note}</div>}
     </div>
@@ -432,9 +442,8 @@ function SecuritySettings({ token }) {
 }
 
 function deviceIcon(device) {
-  if (device === 'Android' || device === 'iOS') return '📱';
-  if (device === 'Mac' || device === 'Windows' || device === 'Linux') return '💻';
-  return '🖥';
+  if (device === 'Android' || device === 'iOS') return <SmartphoneIcon />;
+  return <MonitorIcon />;
 }
 
 function formatSessionTime(iso) {
@@ -476,11 +485,11 @@ function SessionsSettings({ token }) {
   if (!sessions?.length) return null;
 
   return (
-    <div>
-      <h3 style={{ fontSize: 15, margin: '20px 0 14px' }}>💻 Устройства</h3>
+    <div className="settings-group">
+      <div className="settings-group-label"><MonitorIcon /> Устройства</div>
       {sessions.map(s => (
         <div key={s.id} className="blocked-user-row">
-          <div className="avatar sm" style={{ background: 'var(--bg-secondary)', flexShrink: 0, fontSize: 16 }}>
+          <div className="avatar sm" style={{ background: 'var(--bg-primary)', flexShrink: 0 }}>
             {deviceIcon(s.device)}
           </div>
           <div style={{ flex: 1 }}>
