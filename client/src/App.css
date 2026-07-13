@@ -910,8 +910,6 @@ body {
 .send-btn:hover { box-shadow: 0 0 26px var(--accent-glow); }
 
 .auth-tab.active { background: var(--accent); color: var(--accent-ink); }
-.btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent-hover)); color: var(--accent-ink); box-shadow: 0 0 16px var(--accent-glow); }
-.btn-primary:hover { background: linear-gradient(135deg, var(--accent-hover), var(--accent)); }
 
 .sidebar-tab.active {
   background: var(--bg-active);
@@ -937,7 +935,7 @@ body {
 
 ::selection { background: rgba(0,229,192,0.3); }
 
-.search-input:focus { box-shadow: 0 0 0 2px var(--accent-glow); }
+.search-input:focus { box-shadow: inset 0 0 0 1.5px var(--accent); }
 
 /* ── Stickers ────────────────────────────────────── */
 .sticker-picker-wrap { position: relative; }
