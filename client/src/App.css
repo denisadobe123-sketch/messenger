@@ -267,7 +267,6 @@ body {
 
 .sidebar-header {
   padding: 14px 16px; display: flex; align-items: center; gap: 10px;
-  border-bottom: 1px solid var(--border);
 }
 .sidebar-title { font-size: 19px; font-weight: 800; flex: 1; }
 
@@ -459,7 +458,7 @@ body {
 }
 
 .chat-header {
-  padding: 12px 18px; background: var(--bg-secondary); border-bottom: 1px solid var(--border);
+  padding: 12px 18px; background: var(--bg-secondary);
   display: flex; align-items: center; gap: 12px; min-height: 62px;
 }
 .chat-header-info { flex: 1; }
@@ -2257,7 +2256,6 @@ img.jumbo-emoji { width: 64px; height: 64px; vertical-align: unset; }
   /* Шапка — нет видимой границы (прозрачное стекло) */
   .sidebar-header {
     background: color-mix(in srgb, var(--bg-secondary) 85%, transparent) !important;
-    border-bottom: 1px solid rgba(255,255,255,0.06) !important;
   }
 
   /* Папки/фильтры — горизонтальный скролл без полосы */
@@ -2334,10 +2332,17 @@ img.jumbo-emoji { width: 64px; height: 64px; vertical-align: unset; }
   -webkit-backdrop-filter: blur(18px) saturate(160%);
 }
 .sidebar-header, .chat-header { position: relative; }
-.sidebar-header::after, .chat-header::after {
-  content: ''; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px;
+.sidebar-header::after {
+  content: ''; position: absolute; left: 16px; right: 16px; bottom: 0; height: 2px;
+  border-radius: 999px;
   background: linear-gradient(90deg, transparent, var(--accent-glow), transparent);
-  opacity: 0.55; pointer-events: none;
+  opacity: 0.4; pointer-events: none;
+}
+.chat-header::after {
+  content: ''; position: absolute; left: 16px; right: 16px; bottom: 0; height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, var(--accent-glow), transparent);
+  opacity: 0.4; pointer-events: none;
 }
 
 /* ── Glass floating surfaces ── */
