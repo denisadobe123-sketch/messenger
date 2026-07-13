@@ -70,13 +70,14 @@ function ChatItem({
           {chat.type === 'private' && <StatusDot status={otherStatus} online={isOnline} />}
         </div>
         <div className="chat-info">
-          <div className="chat-name">{isPinned && '📌 '}{chat.displayName}</div>
+          <div className="chat-name">{chat.displayName}</div>
           <div className="chat-preview">
             {!getDraft(chat.id) && chat.lastMessage?.senderId === currentUser.id && !chat.lastMessage?.system && !chat.lastMessage?.deleted ? 'Вы: ' : ''}
             {previewText(chat.lastMessage, chat.id)}
           </div>
         </div>
         <div className="chat-meta">
+          {isPinned && <span className="chat-pin-icon" title="Закреплён"><PinIcon /></span>}
           <span className="chat-time">{formatTime(chat.lastMessage?.createdAt || chat.createdAt)}</span>
           {isMuted && <span className="chat-muted-icon" title="Без звука"><BellOffIcon /></span>}
           {chat.unread > 0 && <span className={`unread-badge ${isMuted ? 'muted' : ''}`}>{chat.unread}</span>}

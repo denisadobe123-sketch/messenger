@@ -330,9 +330,14 @@ body {
 .chat-info { flex: 1; min-width: 0; }
 .chat-name { font-weight: 600; font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat-preview { font-size: 13px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+/* Непрочитанные чаты читаются ярче/жирнее — как в ТГ */
+.chat-item:has(.unread-badge) .chat-name { font-weight: 700; }
+.chat-item:has(.unread-badge) .chat-preview { color: var(--text-primary); }
 
 .chat-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
 .chat-time { font-size: 11px; color: var(--text-muted); }
+.chat-pin-icon { color: var(--text-muted); display: inline-flex; }
+.chat-pin-icon svg { width: 13px; height: 13px; }
 .unread-badge {
   background: var(--accent); color: white; border-radius: 10px;
   padding: 1px 7px; font-size: 11px; font-weight: 700; min-width: 20px; text-align: center;
@@ -916,7 +921,6 @@ body {
 }
 .chat-item.active {
   background: var(--bg-active);
-  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .msg-out {
@@ -933,8 +937,7 @@ body {
 
 .status-dot.online { box-shadow: 0 0 8px var(--accent-glow); }
 
-.chat-item, .user-item, .sidebar-tab, .icon-btn, .btn, .auth-btn { will-change: transform; }
-.chat-item:hover { transform: translateX(1px); }
+.user-item, .sidebar-tab, .icon-btn, .btn, .auth-btn { will-change: transform; }
 
 ::selection { background: rgba(0,229,192,0.3); }
 
@@ -1035,12 +1038,13 @@ img.jumbo-emoji { width: 64px; height: 64px; vertical-align: unset; }
 }
 .folder-tabs::-webkit-scrollbar { display: none; }
 .folder-tab {
-  flex-shrink: 0; padding: 6px 14px; border: none; background: var(--bg-primary);
-  color: var(--text-secondary); border-radius: 16px; cursor: pointer; font-size: 12px; font-weight: 600;
+  flex-shrink: 0; padding: 6px 10px 8px; border: none; border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-secondary); cursor: pointer; font-size: 12px; font-weight: 600;
   transition: all 0.15s; white-space: nowrap;
 }
-.folder-tab.active { background: var(--accent); color: white; }
-.folder-tab.folder-add { width: 28px; flex-shrink: 0; font-size: 16px; font-weight: 700; padding: 6px 0; }
+.folder-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.folder-tab.folder-add { width: 28px; flex-shrink: 0; font-size: 16px; font-weight: 700; padding: 6px 0 8px; }
 
 /* ── Toast notifications ─────────────────────────── */
 .toast-wrap {
@@ -2266,7 +2270,7 @@ img.jumbo-emoji { width: 64px; height: 64px; vertical-align: unset; }
     gap: 6px;
   }
   .folder-tabs::-webkit-scrollbar { display: none; }
-  .folder-tab { white-space: nowrap; padding: 6px 14px; font-size: 13px; border-radius: 20px; }
+  .folder-tab { white-space: nowrap; padding: 6px 12px 8px; font-size: 13px; }
 
   /* Профиль — чистый хедер */
   .profile-page-header {
@@ -2350,20 +2354,14 @@ img.jumbo-emoji { width: 64px; height: 64px; vertical-align: unset; }
 .attach-menu-icon svg { width: 17px; height: 17px; }
 .attach-menu-item:hover .attach-menu-icon { color: var(--accent); }
 
-/* ── Chat list: soft floating cards instead of flat rows ── */
-.chat-item {
-  margin: 2px 6px; border-radius: 14px;
-  transition: background 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
-}
-.chat-item:hover { transform: translateX(2px); }
+/* ── Chat list: flat full-width rows (Telegram-style) ── */
 .chat-item.active {
-  background: linear-gradient(120deg, var(--bg-active), transparent 85%);
-  box-shadow: 0 4px 16px color-mix(in srgb, var(--accent) 10%, transparent);
+  background: var(--bg-active);
 }
 .chat-item.active::before {
-  content: ''; position: absolute; left: 0; top: 10px; bottom: 10px;
-  width: 3px; border-radius: 3px;
-  background: var(--accent); box-shadow: 0 0 10px var(--accent-glow);
+  content: ''; position: absolute; left: 0; top: 8px; bottom: 8px;
+  width: 2px; border-radius: 2px;
+  background: var(--accent); box-shadow: 0 0 8px var(--accent-glow);
 }
 
 /* ── Message bubbles: glass sheen + gentle lift on hover ── */
