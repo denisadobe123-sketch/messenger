@@ -11,7 +11,7 @@ import { encryptFor, decryptFrom, encryptBytesFor } from '../e2e.js';
 import { useDecryptedMedia } from '../useDecryptedMedia.js';
 import { getAvatarColor } from '../avatarColor.js';
 import ConfirmDialog from './ConfirmDialog.jsx';
-import { SearchIcon, ImageIcon, ClockIcon, CheckSquareIcon, SlashIcon, CheckIcon, TrashIcon, FileIcon, BarChartIcon, MapPinIcon } from '../icons.jsx';
+import { SearchIcon, ImageIcon, ClockIcon, CheckSquareIcon, SlashIcon, CheckIcon, TrashIcon, FileIcon, BarChartIcon, MapPinIcon, TimerIcon, ClearIcon } from '../icons.jsx';
 import { STATUS_LABELS, useEscapeClose } from '../uiUtils.jsx';
 
 const DRAFTS_KEY = 'chat_drafts';
@@ -1472,7 +1472,7 @@ function ChatActions({ chat, isBlocked, burnAfter, setBurnAfter, onSearch, onMed
       <button className="chat-action-row" onClick={onSelect}><CheckSquareIcon /> Выбрать сообщения</button>
 
       <div className="chat-action-burn">
-        <div className="chat-action-burn-label"><span>🔥</span> Автоудаление</div>
+        <div className="chat-action-burn-label"><TimerIcon /> Автоудаление</div>
         <div className="chat-action-burn-opts">
           {BURN.map(o => (
             <button key={String(o.v)} className={`burn-opt ${burnAfter === o.v ? 'active' : ''}`}
@@ -1481,7 +1481,7 @@ function ChatActions({ chat, isBlocked, burnAfter, setBurnAfter, onSearch, onMed
         </div>
       </div>
 
-      <button className="chat-action-row" onClick={onClear}><span>🧹</span> Очистить историю</button>
+      <button className="chat-action-row" onClick={onClear}><ClearIcon /> Очистить историю</button>
       {chat.type === 'private' && (
         <button className="chat-action-row" onClick={onBlock}>{isBlocked ? <CheckIcon /> : <SlashIcon />} {isBlocked ? 'Разблокировать' : 'Заблокировать'}</button>
       )}

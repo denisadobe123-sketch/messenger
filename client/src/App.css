@@ -2069,7 +2069,7 @@ img.jumbo-emoji { width: 64px; height: 64px; vertical-align: unset; }
 }
 .story-ring {
   width: 56px; height: 56px; border-radius: 50%; padding: 2px;
-  background: linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888);
+  background: linear-gradient(135deg, var(--accent-deep), var(--accent));
   display: flex; align-items: center; justify-content: center;
 }
 .story-ring.viewed { background: var(--border); }
@@ -2407,7 +2407,7 @@ img.jumbo-emoji { width: 64px; height: 64px; vertical-align: unset; }
 }
 .story-close:hover { background: rgba(255,255,255,0.22); transform: scale(1.08); }
 .story-progress-fill.active, .story-progress-fill.done { box-shadow: 0 0 8px rgba(255,255,255,0.5); }
-.story-ring { box-shadow: 0 0 14px rgba(220,39,67,0.25); transition: transform 0.15s ease; }
+.story-ring { box-shadow: 0 0 14px var(--accent-glow); transition: transform 0.15s ease; }
 .story-avatar:hover .story-ring { transform: scale(1.06); }
 
 /* ── Profile page header: ambient glow + fix stale blue shadow on avatar ── */

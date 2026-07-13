@@ -95,3 +95,11 @@ export function BarChartIcon() {
 export function MapPinIcon() {
   return <svg {...svgAttrs}><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></svg>;
 }
+
+export function TimerIcon() {
+  return <svg {...svgAttrs}><line x1="10" y1="2" x2="14" y2="2" /><line x1="12" y1="14" x2="12" y2="9" /><circle cx="12" cy="14" r="8" /></svg>;
+}
+
+export function ClearIcon() {
+  return <svg {...svgAttrs}><line x1="4" y1="8" x2="20" y2="8" /><line x1="4" y1="14" x2="14" y2="14" /><line x1="17" y1="17" x2="21" y2="21" /><line x1="21" y1="17" x2="17" y2="21" /></svg>;
+}
