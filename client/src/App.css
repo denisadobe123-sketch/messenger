@@ -489,7 +489,10 @@ body {
 
 /* ── Message Bubble ──────────────────────────────── */
 .msg-bubble {
-  max-width: 68%; padding: 8px 12px 6px; border-radius: 18px; position: relative;
+  /* min-width: короткие сообщения всё равно должны вмещать футер (время +
+     галочки + кнопки меню/реакции, которые резервируют место даже скрытые
+     через opacity:0) без переноса текста времени по символам. */
+  max-width: 68%; min-width: 128px; padding: 8px 12px 6px; border-radius: 18px; position: relative;
   word-break: break-word; animation: msgIn 0.18s ease;
 }
 @keyframes msgIn {
