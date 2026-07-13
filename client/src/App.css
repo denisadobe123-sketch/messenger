@@ -961,8 +961,8 @@ body {
 .sticker-tab.active { opacity: 1; background: var(--bg-hover); }
 
 .msg-row { display: flex; align-items: center; gap: 8px; animation: msgPop 0.22s cubic-bezier(0.34,1.56,0.64,1) both; }
-.row-out { align-self: flex-end; flex-direction: row; justify-content: flex-end; }
-.row-in { align-self: flex-start; }
+.row-out { flex-direction: row; justify-content: flex-end; }
+.row-in { justify-content: flex-start; }
 .row-out .msg-bubble, .row-in .msg-bubble { align-self: unset; }
 
 @keyframes msgPop {
