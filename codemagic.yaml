@@ -1,0 +1,49 @@
+workflows:
+  ios-capacitor:
+    name: Nexora iOS (Capacitor)
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: nexora_asc
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.nexora.messenger
+      vars:
+        XCODE_WORKSPACE: "client/ios/App/App.xcodeproj/project.xcworkspace"
+        XCODE_SCHEME: "App"
+      node: 20.19.0
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: master
+          include: true
+    scripts:
+      - name: Install npm dependencies
+        script: |
+          cd client
+          npm install
+      - name: Build web assets
+        script: |
+          cd client
+          npm run build
+      - name: Sync Capacitor iOS platform
+        script: |
+          cd client
+          npx cap sync ios
+      - name: Set up code signing
+        script: |
+          xcode-project use-profiles
+      - name: Build ipa for distribution
+        script: |
+          xcode-project build-ipa \
+            --workspace "$XCODE_WORKSPACE" \
+            --scheme "$XCODE_SCHEME"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
