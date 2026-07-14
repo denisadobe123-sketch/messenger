@@ -11,7 +11,7 @@ import { encryptFor, decryptFrom, encryptBytesFor } from '../e2e.js';
 import { useDecryptedMedia } from '../useDecryptedMedia.js';
 import { getAvatarColor } from '../avatarColor.js';
 import ConfirmDialog from './ConfirmDialog.jsx';
-import { SearchIcon, ImageIcon, ClockIcon, CheckSquareIcon, SlashIcon, CheckIcon, TrashIcon, FileIcon, BarChartIcon, MapPinIcon, TimerIcon, ClearIcon } from '../icons.jsx';
+import { SearchIcon, ImageIcon, ClockIcon, CheckSquareIcon, SlashIcon, CheckIcon, TrashIcon, FileIcon, BarChartIcon, MapPinIcon, TimerIcon, ClearIcon, LockIcon, PhoneIcon, MessageSquareIcon, VideoIcon, CrownIcon } from '../icons.jsx';
 import { STATUS_LABELS, useEscapeClose } from '../uiUtils.jsx';
 
 const DRAFTS_KEY = 'chat_drafts';
@@ -936,9 +936,9 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
         <h2>Nexora</h2>
         <p>Выберите чат или найдите людей во вкладке «Люди»</p>
         <div className="no-chat-tips">
-          <div className="no-chat-tip">💬 Личные и групповые чаты</div>
-          <div className="no-chat-tip">🔒 E2E секретные чаты</div>
-          <div className="no-chat-tip">📞 Голосовые и видеозвонки</div>
+          <div className="no-chat-tip"><MessageSquareIcon /> Личные и групповые чаты</div>
+          <div className="no-chat-tip"><LockIcon /> E2E секретные чаты</div>
+          <div className="no-chat-tip"><PhoneIcon /> Голосовые и видеозвонки</div>
         </div>
       </div>
     );
@@ -987,7 +987,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
           {chat.type === 'private' && <span className={`status-dot ${isOnline ? otherStatus : 'offline'}`} />}
         </div>
         <div className="chat-header-info" style={{ cursor: 'pointer' }} onClick={openInfo}>
-          <div className="chat-header-name">{isSecret && '🔒 '}{chat.displayName || chat.name}</div>
+          <div className="chat-header-name">{isSecret && <LockIcon />}{chat.displayName || chat.name}</div>
           {chat.type === 'private' && chat.otherUserHandle && (
             <div className="chat-header-handle">@{chat.otherUserHandle}</div>
           )}
@@ -1142,7 +1142,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
 
         {messages.length === 0 && !typingList.length && (
           <div className="chat-empty-hint">
-            {isSecret ? '🔒 Секретный чат — сообщения шифруются на устройстве' : '👋 Начните переписку'}
+            {isSecret ? <><LockIcon /> Секретный чат — сообщения шифруются на устройстве</> : 'Начните переписку'}
           </div>
         )}
         {typingList.length > 0 && (
@@ -1207,7 +1207,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
 
       {fileToSend && (
         <div className="file-preview">
-          <span>📎</span>
+          <span><FileIcon /></span>
           <span className="file-preview-name">{fileToSend.name}</span>
           <button className="file-preview-cancel" onClick={() => setFileToSend(null)}>✕</button>
         </div>
@@ -1392,7 +1392,7 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
       {showScheduled && (
         <div className="modal-overlay" role="dialog" aria-modal="true" onClick={e => e.target === e.currentTarget && setShowScheduled(false)}>
           <div className="modal">
-            <h3>⏰ Запланированные</h3>
+            <h3 className="icon-heading"><ClockIcon /> Запланированные</h3>
             <div className="modal-members">
               {scheduledList.length === 0 && <div className="empty-state" style={{ padding: 20 }}>Нет запланированных сообщений</div>}
               {scheduledList.map(m => (
@@ -1503,7 +1503,7 @@ function PrivateInfo({ chat, isOnline, statusLabel, isSecret, onClose, actions }
               ? <img src={chat.otherUserAvatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
               : (chat.displayName || '?')[0].toUpperCase()}
           </div>
-          <h3 style={{ marginBottom: 2 }}>{isSecret && '🔒 '}{chat.displayName}</h3>
+          <h3 className="icon-heading" style={{ marginBottom: 2 }}>{isSecret && <LockIcon />}{chat.displayName}</h3>
           {chat.otherUserHandle && <div className="group-info-sub" style={{ color: 'var(--accent)' }}>@{chat.otherUserHandle}</div>}
           <div className={`group-info-sub ${isOnline ? 'online' : ''}`} style={isOnline ? { color: 'var(--online)' } : {}}>{statusLabel}</div>
           {chat.otherUserBio && <div className="group-info-sub" style={{ marginTop: 4, maxWidth: 280, textAlign: 'center' }}>{chat.otherUserBio}</div>}
@@ -1541,7 +1541,7 @@ function PollComposer({ onCreate, onClose }) {
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal">
-        <h3>📊 Создать опрос</h3>
+        <h3 className="icon-heading"><BarChartIcon /> Создать опрос</h3>
         <input className="modal-input" placeholder="Вопрос" value={question} onChange={e => setQuestion(e.target.value)} autoFocus />
         {options.map((o, i) => (
           <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
@@ -1571,17 +1571,17 @@ function PollComposer({ onCreate, onClose }) {
 // Hooks не нарушаются).
 function MediaGridItem({ msg, otherId, token, onImageClick }) {
   const media = useDecryptedMedia(msg.file.url, msg.enc ? otherId : null, token, msg.file.mimetype);
-  if (media.loading) return <div className="media-grid-item" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>🔒</div>;
+  if (media.loading) return <div className="media-grid-item" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}><LockIcon /></div>;
   return msg.file.mimetype?.startsWith('image/')
     ? <img src={media.src} alt="" className="media-grid-item" loading="lazy" onClick={() => onImageClick(media.src)} />
-    : <a href={media.src} target="_blank" rel="noreferrer" className="media-grid-item media-grid-video">🎬</a>;
+    : <a href={media.src} target="_blank" rel="noreferrer" className="media-grid-item media-grid-video"><VideoIcon /></a>;
 }
 
 function MediaFileRow({ msg, otherId, token }) {
   const media = useDecryptedMedia(msg.file.url, msg.enc ? otherId : null, token, msg.file.mimetype);
   return (
     <a href={media.src || undefined} target="_blank" rel="noreferrer" download={msg.file.name} className="media-file-row">
-      <span className="media-file-ic">{media.loading ? '🔒' : '📎'}</span>
+      <span className="media-file-ic">{media.loading ? <LockIcon /> : <FileIcon />}</span>
       <span className="media-file-nm">{msg.file.name}</span>
     </a>
   );
@@ -1690,7 +1690,7 @@ function GroupInfo({ chat, currentUser, token, onlineUsers, onClose, onRename, o
                 return (
                   <div key={id} className="user-item">
                     <div className="avatar sm">{(nameById.get(id) || '?')[0].toUpperCase()}<span className={`status-dot ${online ? 'online' : 'offline'}`} /></div>
-                    <span className="user-name">{name}{id === chat.createdBy && ' 👑'}</span>
+                    <span className="user-name">{name}{id === chat.createdBy && <CrownIcon />}</span>
                     {isCreator && id !== currentUser.id && (
                       <button className="icon-btn" style={{ marginLeft: 'auto', color: 'var(--danger)' }} onClick={() => onRemoveMember(id)} title="Удалить">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>

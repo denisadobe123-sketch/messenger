@@ -359,6 +359,7 @@ body {
 .user-item.selected { background: color-mix(in srgb, var(--accent) 20%, transparent); }
 .user-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .user-name { font-size: 15px; font-weight: 600; color: var(--text-primary); }
+.user-name svg { margin-left: 4px; vertical-align: -2px; opacity: 0.9; }
 .user-handle { font-size: 12px; color: var(--accent); opacity: 0.8; }
 .user-bio { font-size: 12px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
@@ -374,6 +375,8 @@ body {
   animation: slideUp 0.2s ease;
 }
 .modal h3 { font-size: 18px; font-weight: 700; margin-bottom: 20px; }
+.icon-heading { display: flex; align-items: center; gap: 8px; }
+.icon-heading svg { flex-shrink: 0; opacity: 0.85; }
 
 .modal-input {
   width: 100%; background: var(--bg-primary); border: 1.5px solid var(--border);
@@ -467,7 +470,8 @@ body {
   display: flex; align-items: center; gap: 12px; min-height: 62px;
 }
 .chat-header-info { flex: 1; }
-.chat-header-name { font-weight: 700; font-size: 16px; }
+.chat-header-name { font-weight: 700; font-size: 16px; display: flex; align-items: center; gap: 4px; }
+.chat-header-name svg { flex-shrink: 0; opacity: 0.85; }
 .chat-header-handle { font-size: 11px; color: var(--accent); opacity: 0.75; line-height: 1.2; }
 .chat-header-status { font-size: 12px; color: var(--text-secondary); margin-top: 1px; }
 .chat-header-status.online { color: var(--online); }
@@ -657,7 +661,8 @@ body {
 .no-chat h2 { font-size: 22px; font-weight: 800; color: var(--text-primary); margin-top: 4px; }
 .no-chat p  { font-size: 14px; color: var(--text-secondary); text-align: center; }
 .no-chat-tips { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
-.no-chat-tip { font-size: 13px; color: var(--text-muted); background: var(--bg-secondary); padding: 8px 18px; border-radius: 20px; }
+.no-chat-tip { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); background: var(--bg-secondary); padding: 8px 18px; border-radius: 20px; }
+.no-chat-tip svg { flex-shrink: 0; opacity: 0.8; }
 
 /* ── Pinned banner ───────────────────────────────── */
 .pinned-banner {
@@ -1454,7 +1459,9 @@ img.jumbo-emoji { width: 64px; height: 64px; vertical-align: unset; }
   background: var(--bg-secondary); border-radius: 16px;
   font-size: 13px; color: var(--text-secondary);
   box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  display: flex; align-items: center; justify-content: center; gap: 6px;
 }
+.chat-empty-hint svg { flex-shrink: 0; opacity: 0.8; }
 
 /* ── Системные сообщения / разделитель непрочитанных ── */
 .msg-system {
@@ -2049,6 +2056,7 @@ img.jumbo-emoji { width: 64px; height: 64px; vertical-align: unset; }
   width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; cursor: pointer; background: var(--bg-hover);
 }
 .media-grid-video { display: flex; align-items: center; justify-content: center; font-size: 28px; text-decoration: none; }
+.media-grid-item svg, .media-grid-video svg { width: 28px; height: 28px; opacity: 0.85; }
 .media-file-list { display: flex; flex-direction: column; gap: 2px; }
 .media-file-row {
   display: flex; align-items: center; gap: 10px; padding: 10px 8px; border-radius: 8px;
@@ -2056,6 +2064,7 @@ img.jumbo-emoji { width: 64px; height: 64px; vertical-align: unset; }
 }
 .media-file-row:hover { background: var(--bg-hover); }
 .media-file-ic { font-size: 18px; flex: none; }
+.media-file-ic svg { width: 18px; height: 18px; }
 .media-file-nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; word-break: break-all; }
 
 /* ── Запланированные ───────────────────────────────────────────── */
