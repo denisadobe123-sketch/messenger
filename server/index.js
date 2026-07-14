@@ -1006,7 +1006,7 @@ app.post('/messages/queued', authMiddleware, async (req, res) => {
   await Promise.all(chat.members.map(async memberId => {
     if (memberId === req.user.id || Muted.isMuted(memberId, chatId)) return;
     const offline = !isOnline(memberId);
-    if (offline) sendPushToUser(memberId, senderName, pushBody);
+    sendPushToUser(memberId, senderName, pushBody);
     const webPushSent = await sendWebPush(memberId, { title: senderName, body: pushBody, chatId, icon: sender?.avatar || '/icon-192.png' });
     if (offline && !webPushSent) {
       const member = Users.getById(memberId);
@@ -1190,7 +1190,7 @@ io.on('connection', (socket) => {
       if (Blocked.isBlocked(memberId, userId)) return;
       if (Muted.isMuted(memberId, chatId)) return;
       const offline = !isOnline(memberId);
-      if (offline) sendPushToUser(memberId, senderName, pushBody);
+      sendPushToUser(memberId, senderName, pushBody);
       const webPushSent = await sendWebPush(memberId, { title: senderName, body: pushBody, chatId, icon: sender?.avatar || '/icon-192.png' });
       // SMS fallback: send if user is offline and has no web push subscription
       if (offline && !webPushSent) {
@@ -1628,7 +1628,7 @@ async function dispatchScheduled() {
       if (memberId === m.senderId) return;
       if (Blocked.isBlocked(memberId, m.senderId)) return;
       if (Muted.isMuted(memberId, m.chatId)) return;
-      if (!isOnline(memberId)) sendPushToUser(memberId, senderName, pushBody);
+      sendPushToUser(memberId, senderName, pushBody);
       await sendWebPush(memberId, { title: senderName, body: pushBody, chatId: m.chatId, icon: sender?.avatar || '/icon-192.png' });
     }));
   }
