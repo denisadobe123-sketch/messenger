@@ -11,7 +11,7 @@ import { encryptFor, decryptFrom, encryptBytesFor } from '../e2e.js';
 import { useDecryptedMedia } from '../useDecryptedMedia.js';
 import { getAvatarColor } from '../avatarColor.js';
 import ConfirmDialog from './ConfirmDialog.jsx';
-import { SearchIcon, ImageIcon, ClockIcon, CheckSquareIcon, SlashIcon, CheckIcon, TrashIcon, FileIcon, BarChartIcon, MapPinIcon, TimerIcon, ClearIcon, LockIcon, PhoneIcon, MessageSquareIcon, VideoIcon, CrownIcon } from '../icons.jsx';
+import { SearchIcon, ImageIcon, ClockIcon, CheckSquareIcon, SlashIcon, CheckIcon, TrashIcon, FileIcon, BarChartIcon, MapPinIcon, TimerIcon, ClearIcon, LockIcon, PhoneIcon, MessageSquareIcon, VideoIcon, CrownIcon, LinkIcon } from '../icons.jsx';
 import { STATUS_LABELS, useEscapeClose } from '../uiUtils.jsx';
 
 const DRAFTS_KEY = 'chat_drafts';
@@ -1617,7 +1617,7 @@ function MediaTabs({ mediaMsgs, fileMsgs, linkMsgs, otherId, token, onImageClick
               {linkMsgs.map(m => {
                 const url = (m.text.match(/https?:\/\/[^\s]+/) || [])[0];
                 return <a key={m.id} href={url} target="_blank" rel="noreferrer" className="media-file-row">
-                  <span className="media-file-ic">🔗</span>
+                  <span className="media-file-ic"><LinkIcon /></span>
                   <span className="media-file-nm">{url}</span>
                 </a>;
               })}

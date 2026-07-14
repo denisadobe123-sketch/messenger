@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 import { API_URL as API } from '../api.js';
+import { LockIcon } from '../icons.jsx';
 
 export default function Auth({ onAuth, initialError }) {
   const [step, setStep] = useState('email'); // 'email' | 'code' | '2fa'
@@ -198,7 +199,7 @@ export default function Auth({ onAuth, initialError }) {
         {/* ── STEP 3: 2FA (облачный пароль) ── */}
         {step === '2fa' && (
           <form className="auth-form" onSubmit={verify2fa}>
-            <p className="auth-desc">🔐 Введи облачный пароль (двухэтапная защита)</p>
+            <p className="auth-desc icon-heading" style={{ justifyContent: 'center' }}><LockIcon /> Введи облачный пароль (двухэтапная защита)</p>
             <input
               className="auth-input"
               type="password"

@@ -236,7 +236,7 @@ export default function Sidebar({ chats, currentUser, onlineUsers, userStatuses,
           <button className={`folder-tab ${activeFolder === 'all' ? 'active' : ''}`} onClick={() => setActiveFolder('all')}>Все</button>
           {archivedIds.length > 0 && (
             <button className={`folder-tab ${activeFolder === 'archive' ? 'active' : ''}`} onClick={() => setActiveFolder('archive')}>
-              📥 Архив
+              Архив
             </button>
           )}
           {folders.map(f => (

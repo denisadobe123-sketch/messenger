@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { verifyPin, markUnlocked } from '../passcode.js';
+import { LockIcon } from '../icons.jsx';
 
 export default function PasscodeLock({ onUnlock }) {
   const [pin, setPin] = useState('');
@@ -20,7 +21,7 @@ export default function PasscodeLock({ onUnlock }) {
   return (
     <div className="passcode-overlay">
       <div className="passcode-box">
-        <div className="passcode-icon">🔒</div>
+        <div className="passcode-icon"><LockIcon /></div>
         <div className="passcode-title">Введите код-пароль</div>
         <div className={`passcode-dots ${err ? 'shake' : ''}`}>
           {[0, 1, 2, 3].map(i => <span key={i} className={`passcode-dot ${i < pin.length ? 'filled' : ''}`} />)}

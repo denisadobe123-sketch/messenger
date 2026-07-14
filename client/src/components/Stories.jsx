@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { API_URL } from '../api.js';
 import { getSocket } from '../socket.js';
 import { getAvatarColor } from '../avatarColor.js';
+import { EyeIcon, TrashIcon } from '../icons.jsx';
 
 export default function StoriesBar({ currentUser, token }) {
   const [groups, setGroups] = useState([]);
@@ -144,9 +145,9 @@ function StoryViewer({ groups, startGroup, currentUser, token, onClose }) {
       <div className="story-viewer-head">
         <div className="avatar sm">{group.avatar ? <img src={group.avatar} alt="" /> : (group.username || '?')[0].toUpperCase()}</div>
         <span>{group.username}</span>
-        {group.isMine && <span style={{ marginLeft: 'auto', fontSize: 13, opacity: 0.8 }}>👁 {story.viewers?.length || 0}</span>}
+        {group.isMine && <span style={{ marginLeft: 'auto', fontSize: 13, opacity: 0.8, display: 'inline-flex', alignItems: 'center', gap: 4 }}><EyeIcon /> {story.viewers?.length || 0}</span>}
         {group.isMine && !confirmDel && (
-          <button className="icon-btn" style={{ color: '#fff' }} onClick={() => setConfirmDel(true)} title="Удалить">🗑</button>
+          <button className="icon-btn" style={{ color: '#fff' }} onClick={() => setConfirmDel(true)} title="Удалить"><TrashIcon /></button>
         )}
         {group.isMine && confirmDel && (
           <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>

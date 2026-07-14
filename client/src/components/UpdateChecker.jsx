@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { Browser } from '@capacitor/browser';
 import { API_URL } from '../api.js';
+import { DownloadIcon } from '../icons.jsx';
 
 const APP_VERSION = '1.6.1';
 
@@ -35,7 +36,7 @@ export default function UpdateChecker() {
   return (
     <div className="update-overlay">
       <div className="update-modal">
-        <div className="update-icon">🚀</div>
+        <div className="update-icon"><DownloadIcon /></div>
         <h2 className="update-title">Доступно обновление</h2>
         <p className="update-version">Версия {update.version}</p>
         <p className="update-desc">Скачайте новую версию приложения для получения улучшений и исправлений.</p>
