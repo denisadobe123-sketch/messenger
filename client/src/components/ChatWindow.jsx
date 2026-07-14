@@ -202,7 +202,10 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
       .then(msgs => {
         if (latestChatIdRef.current !== chat.id) return; // пользователь уже ушёл в другой чат — ответ устарел
         setLoadingMessages(false);
-        applyLoadedMessages(msgs, msgs.length >= 60, unreadCount);
+        // Сервер может вернуть объект-ошибку (например 401 при истёкшей сессии)
+        // вместо массива — без проверки это роняло ChatWindow целиком.
+        const list = Array.isArray(msgs) ? msgs : [];
+        applyLoadedMessages(list, list.length >= 60, unreadCount);
       })
       .catch(() => { if (latestChatIdRef.current === chat.id) setLoadingMessages(false); });
 
@@ -429,7 +432,8 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
     const prevHeight = el?.scrollHeight || 0;
     try {
       const r = await fetch(`${API_URL}/messages/${chat.id}?before=${firstId}`, { headers: { Authorization: `Bearer ${token}` } });
-      const older = await r.json();
+      const data = await r.json();
+      const older = Array.isArray(data) ? data : [];
       if (older.length === 0) { setHasMoreAbove(false); return; }
       setMessages(prev => [...older, ...prev]);
       setHasMoreAbove(older.length >= 60);
@@ -814,7 +818,10 @@ export default function ChatWindow({ chat, currentUser, onlineUsers, userStatuse
 
     const t = setTimeout(() => {
       fetch(`${API_URL}/messages/${chat.id}/search?q=${encodeURIComponent(searchQuery)}`, { headers: { Authorization: `Bearer ${token}` } })
-        .then(r => r.json()).then(results => { setSearchResults(results); setSearchIndex(0); if (results.length) scrollToMessage(results[results.length - 1].id); });
+        .then(r => r.json()).then(data => {
+          const results = Array.isArray(data) ? data : [];
+          setSearchResults(results); setSearchIndex(0); if (results.length) scrollToMessage(results[results.length - 1].id);
+        }).catch(() => {});
     }, 300);
     return () => clearTimeout(t);
   }, [searchQuery, showSearch, isSecret, messages, decrypted]);
