@@ -25,7 +25,7 @@ export default function ProfilePage({ user, token, onUpdate, onLogout }) {
 
   useEffect(() => {
     fetch(`${API_URL}/blocked`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.json()).then(setBlockedUsers).catch(() => {});
+      .then(r => r.json()).then(d => setBlockedUsers(Array.isArray(d) ? d : [])).catch(() => {});
   }, [token]);
 
   async function unblock(userId) {
