@@ -113,6 +113,10 @@ export default function App() {
     const onOnline = async () => {
       setIsOnline(true);
       const sock = getSocket();
+      // Смена сети (например, вкл/выкл VPN) не всегда чисто рвёт сокет —
+      // WebView иногда держит его "подвисшим", и встроенный реконнект
+      // socket.io ждёт свой backoff-таймер вместо немедленной попытки.
+      if (sock && !sock.connected) sock.connect();
       const sz = await queueSize();
       if (sock && sz > 0) {
         flushQueue(sock, (n) => { if (n > 0) console.log(`[Queue] Flushed ${n} messages`); });
@@ -162,6 +166,10 @@ export default function App() {
     const socket = connectSocket(token);
 
     socket.on('connect', async () => {
+      // Срабатывает и на первом коннекте, и на каждом реконнекте (обрыв сети,
+      // смена VPN-статуса) — на реконнекте подтягиваем чаты заново, чтобы не
+      // остаться со списком, устаревшим на время разрыва realtime-соединения.
+      loadChats(token);
       const sz = await queueSize();
       if (sz > 0) flushQueue(socket, n => console.log(`[Queue] Flushed ${n}`));
     });
